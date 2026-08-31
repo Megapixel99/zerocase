@@ -1,6 +1,6 @@
 {
   "name": "zerocase",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A check with a zero denominator reports clean. Read the junit/TAP/lcov/eslint report the runner already wrote and put a floor under what actually ran.",
   "type": "module",
   "exports": {
