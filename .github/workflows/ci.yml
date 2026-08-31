@@ -181,11 +181,19 @@ jobs:
           npm install --no-audit --no-fund
           out=$(python3 -m unittest discover -s python/tests -p 'test_parity.py' -v 2>&1)
           echo "$out"
-          if echo "$out" | grep -q "skipped"; then
+          # A HERE-STRING AND NOT A PIPE, and this one matters more than it looks.
+          # `echo "$out" | grep -q` under `pipefail` can come back non-zero because
+          # `grep -q` matched and closed the pipe under `echo` -- and non-zero here is
+          # the branch that says "no skips, carry on". So the failure mode of the race
+          # is this gate PASSING a run whose parity suite was skipped, which is the one
+          # thing it exists to catch. It cost the 0.1.2 npm publish in its other form.
+          if grep -q "skipped" <<<"$out"; then
             echo "::error::the parity tests were SKIPPED, so nothing checked the contract"
             exit 1
           fi
-          ran=$(echo "$out" | grep -c " \.\.\. ok")
+          # `grep -c` reads to EOF, so it is not the same hazard; the here-string is for
+          # one shape in one file rather than two that a reader has to tell apart.
+          ran=$(grep -c " \.\.\. ok" <<<"$out")
           echo "parity assertions that ran: $ran"
           if [ "$ran" -lt 5 ]; then
             echo "::error::expected at least 5 parity tests, saw $ran"
