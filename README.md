@@ -98,6 +98,20 @@ Every report must have been **written during this run** — created, changed, or
 `--allow-stale` lifts it for the case where a separate step produced the file, and the
 name is deliberately unpleasant.
 
+**A glob is asked that per file, and only the files this run wrote are summed.** Runners
+that stamp a timestamp into the filename — `unittest-xml-reporting` writes
+`TEST-<Class>-<timestamp>.xml` — never overwrite, so a second run into a directory nobody
+cleaned *adds* reports beside the old ones. Counting every match would let a run that is
+already over carry the floor for the run in front of you. Leftovers are named in the
+detail and left out of the count:
+
+```
+0 of 3 tests ran — the report is not empty, and nothing in it happened;
+1 stale file(s) this run did not write, left out of the count, first reports/TEST-old.xml
+```
+
+Under `--allow-stale` there is no "this run" to compare against, so every match counts.
+
 `zerocase read --junit reports/junit.xml` parses a file already on disk and **does not**
 check freshness. It says so on every run, because that is the whole reason the gate takes
 a command instead of a filename.
@@ -234,8 +248,8 @@ Nothing found gates a run on the denominator of the report the runner already wr
 ## Tests
 
 ```sh
-npm test                                                   # 35
-PYTHONPATH=python python3 -m unittest discover -s python/tests   # 41, seven of them parity
+npm test                                                   # 38
+PYTHONPATH=python python3 -m unittest discover -s python/tests   # 44, seven of them parity
 ```
 
 The parity suite sends **one** table of fixtures and verdict rows to both halves and
@@ -246,13 +260,21 @@ over stdin rather than kept in a second copy, because a parity suite whose sides
 their own inputs drifts by being asked different questions and then reports agreement
 about that.
 
-**Twelve mutations were applied to the source and all twelve were caught** — the floor read
+**Thirteen mutations were applied to the source and all thirteen were caught** — the floor read
 from the total instead of from what executed, a skipped testcase counted as one that ran,
 an unreadable report scored as evidence, the freshness check skipped, a floor of zero
 accepted, comments left unstripped before the scan, an empty glob scored as clean, a
 skipped test counted as a failure, the failure count never reported, a failing suite scored
 as no evidence, the predicate keeping no tally, and `read` taking the first match of a glob
-instead of summing it.
+instead of summing it, and a glob counting every file it matched rather than only the ones
+the run wrote.
+
+**The thirteenth was not hypothetical — it shipped.** `zerocase 0.1.1` asked its freshness
+rule whether *any* file under a pattern had changed and then summed *every* file the
+pattern matched, so a second run into an uncleaned directory was carried by the first.
+Reverting 0.1.2's glob to that behaviour now fails two tests in each half; before 0.1.2
+there was nothing for it to fail. A mutation you can only invent after the release is a
+test you did not have.
 
 **Two of them survived their first run**, and both were worth more than the fix.
 

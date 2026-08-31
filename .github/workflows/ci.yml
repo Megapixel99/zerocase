@@ -220,9 +220,10 @@ jobs:
           #   DID NOT RUN — reports/py.xml was never created
           #
           # which is the tool being right about the workflow that invokes it. The glob is
-          # the correct usage AND it exercises the summing path: `41 of 41 tests ran
+          # the correct usage AND it exercises the summing path: `44 of 44 tests ran
           # (floor 20) — across 6 files`, where a single-file run would have exercised
-          # neither.
+          # neither. The step below is its control: only the files THIS run wrote are
+          # summed, so the count cannot be inherited from a run that is already over.
           python3 -m zerocase.cli --junit 'reports/*.xml' --min 20 -- \
             python3 -m xmlrunner discover -s python/tests -o reports
 
@@ -255,6 +256,32 @@ jobs:
           set -e
           if [ "$code" -ne 3 ]; then
             echo "::error::a suite that skipped every test was not caught (exit $code)"
+            exit 1
+          fi
+
+      - name: ...and a report left over from an EARLIER run does not carry the floor
+        # THE CONTROL FOR THE GLOB, and the reason 0.1.2 exists. The step above points a
+        # pattern at a directory, and `unittest-xml-reporting` writes
+        # `TEST-<Class>-<timestamp>.xml` -- names that never collide, so a second run into
+        # a directory nobody cleaned ADDS files. 0.1.1 asked whether ONE match had changed
+        # and then summed every match, so a run that collected a single test reported
+        # `42 of 42 tests ran (floor 20)` and exited 0.
+        #
+        # Here `TEST-old.xml` is a finished run's three passing tests and the command
+        # writes one report that executed nothing. Summed, that clears a floor of 3;
+        # counted honestly, it is `0 of 3 tests ran` and exit 3. Under 0.1.1 this step
+        # exits 0 and fails.
+        run: |
+          set +e
+          mkdir -p stale-check
+          cp fixtures/junit-real.xml stale-check/TEST-old.xml
+          python3 -m zerocase.cli --junit 'stale-check/*.xml' --min 3 -- \
+            cp fixtures/junit-all-skipped.xml stale-check/TEST-new.xml
+          code=$?
+          set -e
+          echo "exit=$code"
+          if [ "$code" -ne 3 ]; then
+            echo "::error::a leftover report was summed into this run's count (exit $code)"
             exit 1
           fi
 
