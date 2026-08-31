@@ -20,6 +20,12 @@
  * and says four hundred tests passed. The single-path case delegates to
  * `didrun.evidence.wrote` rather than restating it, so "a stale artefact from an earlier
  * run looks exactly like this" is one sentence in one package.
+ *
+ * AND IT IS PER FILE, NOT PER PATTERN. A glob is asked which of its matches THIS run
+ * wrote, and only those are summed. Asking whether anything under `reports/*.xml` changed
+ * and then counting everything under `reports/*.xml` lets a run that is over carry the
+ * floor for the run in front of you, which is this package's own thesis pointed the wrong
+ * way.
  */
 
 import fs from "node:fs";
@@ -32,12 +38,34 @@ import { FAILED_LABELS, ParseError, UNITS, VERBS } from "./parse.js";
 
 const GLOB_CHARS = /[*?[]/;
 
-function digest(file) {
+/**
+ * Size, mtime and digest — the three things `didrun.evidence.wrote` compares.
+ *
+ * The same three, deliberately: a runner that writes a byte-identical report DID run, and
+ * `wrote` says so by looking at the mtime when the digest matches. A glob branch that
+ * compared digests alone called that same run stale, so the two paths disagreed about one
+ * file depending on whether the pattern had a `*` in it.
+ */
+function stat(file) {
   try {
-    return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+    const st = fs.statSync(file);
+    const data = fs.readFileSync(file);
+    return {
+      size: st.size,
+      mtime: st.mtimeMs,
+      digest: crypto.createHash("sha256").update(data).digest("hex"),
+    };
   } catch {
     return null;
   }
+}
+
+/** Did THIS run touch this one file? The rule `wrote` uses, per matched path. */
+function isFresh(now, was) {
+  if (now === null || now === undefined) return false; // matched, then unreadable
+  if (was === null || was === undefined) return true; // it was not there before the run
+  if (now.digest !== was.digest) return true;
+  return now.mtime > was.mtime; // rewritten with the same content
 }
 
 /**
@@ -85,18 +113,33 @@ function expand(pattern) {
  * exist when `before()` runs, which is the ordinary case for a report the command is
  * about to write. The rule generalises the same way — a matched file appeared, or one
  * that was already there changed.
+ *
+ * IT ANSWERS PER FILE AND NOT ONLY FOR THE SET. Asking "did anything here change?" and
+ * then summing everything the pattern matched is how the count of a run that is over gets
+ * added to the count of the run in front of you.
  */
 function globFreshness(pattern) {
   const snapshot = () => {
     const out = {};
-    for (const file of expand(pattern)) out[file] = digest(file);
+    for (const file of expand(pattern)) out[file] = stat(file);
     return out;
   };
   return {
     snapshot,
+    /**
+     * -> [ok, detail, the files this run wrote, the files it did not].
+     *
+     * The last two are the point. `zerocase 0.1.1` returned a verdict for the set and let
+     * the caller sum every match, so a second run into a directory nobody cleaned was
+     * carried by the first: `unittest-xml-reporting` names its files
+     * `TEST-<Class>-<timestamp>.xml`, which never collide, so run two ADDED six files to
+     * run one's six and reported `42 of 42 tests ran (floor 20)` for a run that collected
+     * a single test. A green run of nothing wearing somebody else's total is the exact
+     * shape this package exists to report, and it was doing it.
+     */
     check(before) {
       const after = snapshot();
-      const names = Object.keys(after);
+      const names = Object.keys(after).sort();
       if (names.length === 0) {
         return [
           false,
@@ -104,19 +147,31 @@ function globFreshness(pattern) {
             (Object.keys(before).length
               ? ` — and it matched ${Object.keys(before).length} before the run`
               : ""),
+          [],
+          [],
         ];
       }
-      const appeared = names.filter((n) => !(n in before)).sort();
-      if (appeared.length) {
-        return [true, `${appeared.length} file(s) appeared, first ${appeared[0]}`];
+      const fresh = names.filter((n) => isFresh(after[n], before[n]));
+      const ignored = names.filter((n) => !fresh.includes(n));
+      if (fresh.length === 0) {
+        return [
+          false,
+          `every file matching ${pattern} is byte for byte what it was before the run — ` +
+            `a stale artefact from an earlier run looks exactly like this`,
+          [],
+          ignored,
+        ];
       }
-      const changed = names.filter((n) => after[n] !== before[n]);
-      if (changed.length) return [true, `${changed.length} file(s) changed`];
-      return [
-        false,
-        `every file matching ${pattern} is byte for byte what it was before the run — ` +
-          `a stale artefact from an earlier run looks exactly like this`,
-      ];
+      const appeared = fresh.filter((n) => !(n in before));
+      if (appeared.length) {
+        return [
+          true,
+          `${appeared.length} file(s) appeared, first ${appeared[0]}`,
+          fresh,
+          ignored,
+        ];
+      }
+      return [true, `${fresh.length} file(s) changed`, fresh, ignored];
     },
   };
 }
@@ -182,16 +237,24 @@ export function report(kind, file, { min = 1, allowStale = false, pointer = null
       return isGlob ? freshness.snapshot() : freshness.before();
     },
     check(result, before) {
+      // THE FILES THIS RUN WROTE, not every file the pattern matched. A glob whose
+      // freshness is enforced tallies only what came out of the command in front of it;
+      // anything left over from an earlier run is named in the detail and left out of the
+      // sum. `allowStale` is the one way to add them back, which is what it says.
+      let files = null;
+      let ignored = [];
       if (freshness) {
         if (isGlob) {
-          const [ok, detail] = freshness.check(before);
+          const [ok, detail, wrote, skipped] = freshness.check(before);
           if (!ok) return { satisfied: false, detail };
+          files = wrote;
+          ignored = skipped;
         } else {
           const fresh = freshness.check(result, before);
           if (!fresh.satisfied) return { satisfied: false, detail: fresh.detail };
         }
       }
-      const files = expand(file);
+      if (files === null) files = expand(file);
       if (files.length === 0) {
         return { satisfied: false, detail: `${file} matched no files` };
       }
@@ -228,14 +291,22 @@ export function report(kind, file, { min = 1, allowStale = false, pointer = null
       }
       let [satisfied, detail] = verdict(kind, total, executed, min);
       if (files.length > 1) detail += ` — across ${files.length} files`;
+      if (ignored.length) {
+        // SAID OUT LOUD, because a number that quietly got smaller is the thing this
+        // package objects to. A reader who expected the leftovers counted needs to be
+        // told they were not, and told which ones.
+        detail +=
+          `; ${ignored.length} stale file(s) this run did not write, left out of the ` +
+          `count, first ${ignored[0]}`;
+      }
       if (failed) {
         // INFORMATIONAL, NEVER A VERDICT. Whether a suite failed is the exit code's
         // business and `didrun` already reads it.
         detail += `; ${failed} ${FAILED_LABELS[kind]}`;
       }
       for (const note of notes) detail += `; ${note}`;
-      this.tally = { kind, path: file, files: files.length, total, executed, failed,
-                     minimum: min };
+      this.tally = { kind, path: file, files: files.length, stale: ignored.length,
+                     total, executed, failed, minimum: min };
       return { satisfied, detail };
     },
   };

@@ -20,6 +20,11 @@ says four hundred tests passed; a runner that never started leaves it exactly wh
 was. The single-path case delegates to `didrun.evidence.Wrote` rather than restating it,
 so "a stale artefact from an earlier run looks exactly like this" is one sentence in one
 package.
+
+AND IT IS PER FILE, NOT PER PATTERN. A glob is asked which of its matches THIS run wrote,
+and only those are summed. Asking whether anything under `reports/*.xml` changed and then
+counting everything under `reports/*.xml` lets a run that is over carry the floor for the
+run in front of you, which is this package's own thesis pointed the wrong way.
 """
 
 from __future__ import annotations
@@ -36,12 +41,33 @@ from .parse import ParseError
 GLOB_CHARS = "*?["
 
 
-def _digest(path):
+def _stat(path):
+    """Size, mtime and digest — the three things `didrun.evidence.Wrote` compares.
+
+    The same three, deliberately: a runner that writes a byte-identical report DID run,
+    and `Wrote` says so by looking at the mtime when the digest matches. A glob branch
+    that compared digests alone called that same run stale, so the two paths disagreed
+    about one file depending on whether the pattern had a `*` in it.
+    """
     try:
+        st = os.stat(path)
         with open(path, "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()
+            data = fh.read()
+        return {"size": st.st_size, "mtime": st.st_mtime,
+                "digest": hashlib.sha256(data).hexdigest()}
     except OSError:
         return None
+
+
+def _is_fresh(now, was):
+    """Did THIS run touch this one file? The rule `Wrote` uses, per matched path."""
+    if now is None:
+        return False        # it matched the pattern and then could not be read
+    if was is None:
+        return True         # it was not there before the run
+    if now["digest"] != was["digest"]:
+        return True
+    return now["mtime"] > was["mtime"]      # rewritten with the same content
 
 
 class _GlobFreshness:
@@ -52,28 +78,44 @@ class _GlobFreshness:
     not exist yet when `before()` runs, which is the ordinary case for a report the
     command is about to write. The rule generalises the same way — a matched file
     appeared, or one that was already there changed.
+
+    IT ANSWERS PER FILE AND NOT ONLY FOR THE SET. Asking "did anything here change?" and
+    then summing everything the pattern matched is how the count of a run that is over
+    gets added to the count of the run in front of you.
     """
 
     def __init__(self, pattern):
         self.pattern = pattern
 
     def snapshot(self):
-        return {p: _digest(p) for p in sorted(globmod.glob(self.pattern))}
+        return {p: _stat(p) for p in sorted(globmod.glob(self.pattern))}
 
     def check(self, before):
+        """-> (ok, detail, the files this run wrote, the files it did not).
+
+        The last two are the point. `zerocase 0.1.1` returned a verdict for the set and
+        let the caller sum every match, so a second run into a directory nobody cleaned
+        was carried by the first: `unittest-xml-reporting` names its files
+        `TEST-<Class>-<timestamp>.xml`, which never collide, so run two ADDED six files
+        to run one's six and reported `42 of 42 tests ran (floor 20)` for a run that
+        collected a single test. A green run of nothing wearing somebody else's total is
+        the exact shape this package exists to report, and it was doing it.
+        """
         after = self.snapshot()
         if not after:
             return False, (f"{self.pattern} matched no files"
                            + (" — and it matched %d before the run" % len(before)
-                              if before else ""))
-        if set(after) - set(before):
-            new = sorted(set(after) - set(before))
-            return True, f"{len(new)} file(s) appeared, first {new[0]}"
-        if any(after[p] != before.get(p) for p in after):
-            return True, f"{sum(1 for p in after if after[p] != before.get(p))} file(s) changed"
-        return False, (f"every file matching {self.pattern} is byte for byte what it was "
-                       f"before the run — a stale artefact from an earlier run looks "
-                       f"exactly like this")
+                              if before else "")), [], []
+        fresh = [p for p in after if _is_fresh(after[p], before.get(p))]
+        ignored = [p for p in after if p not in fresh]
+        if not fresh:
+            return False, (f"every file matching {self.pattern} is byte for byte what it "
+                           f"was before the run — a stale artefact from an earlier run "
+                           f"looks exactly like this"), [], ignored
+        appeared = [p for p in fresh if p not in before]
+        if appeared:
+            return True, f"{len(appeared)} file(s) appeared, first {appeared[0]}", fresh, ignored
+        return True, f"{len(fresh)} file(s) changed", fresh, ignored
 
 
 class Report(Predicate):
@@ -109,9 +151,14 @@ class Report(Predicate):
         return (self.freshness.snapshot() if self.is_glob else self.freshness.before())
 
     def check(self, result, before):
+        # THE FILES THIS RUN WROTE, not every file the pattern matched. A glob whose
+        # freshness is enforced tallies only what came out of the command in front of it;
+        # anything left over from an earlier run is named in the detail and left out of
+        # the sum. `--allow-stale` is the one way to add them back, which is what it says.
+        paths, ignored = None, []
         if self.freshness is not None:
             if self.is_glob:
-                ok, detail = self.freshness.check(before)
+                ok, detail, paths, ignored = self.freshness.check(before)
                 if not ok:
                     return Check(self.name, False, detail)
             else:
@@ -119,7 +166,8 @@ class Report(Predicate):
                 if not fresh.satisfied:
                     return Check(self.name, False, fresh.detail)
 
-        paths = sorted(globmod.glob(self.path)) if self.is_glob else [self.path]
+        if paths is None:
+            paths = sorted(globmod.glob(self.path)) if self.is_glob else [self.path]
         if not paths:
             return Check(self.name, False, f"{self.path} matched no files")
 
@@ -152,6 +200,12 @@ class Report(Predicate):
         satisfied, detail = verdict(self.kind, total, executed, self.minimum)
         if len(paths) > 1:
             detail += f" — across {len(paths)} files"
+        if ignored:
+            # SAID OUT LOUD, because a number that quietly got smaller is the thing this
+            # package objects to. A reader who expected the leftovers counted needs to be
+            # told they were not, and told which ones.
+            detail += (f"; {len(ignored)} stale file(s) this run did not write, left out "
+                       f"of the count, first {ignored[0]}")
         if failed:
             # INFORMATIONAL, NEVER A VERDICT. Whether a suite failed is the exit code's
             # business and `didrun` already reads it. This is here so that a reader
@@ -163,8 +217,8 @@ class Report(Predicate):
         # Kept so `--json-out` can report the numbers rather than only the sentence about
         # them. One run, one predicate, one tally.
         self.tally = {"kind": self.kind, "path": self.path, "files": len(paths),
-                      "total": total, "executed": executed, "failed": failed,
-                      "minimum": self.minimum}
+                      "stale": len(ignored), "total": total, "executed": executed,
+                      "failed": failed, "minimum": self.minimum}
         return Check(self.name, satisfied, detail)
 
 

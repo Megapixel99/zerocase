@@ -230,6 +230,61 @@ test("a glob sums the reports it matched", async () => {
   assert.match(result.checks[0].detail, /across 2 files/);
 });
 
+test("a stale file the run did not write is left out of the sum", async () => {
+  // THE COUNT OF A RUN THAT IS OVER IS NOT PART OF THIS ONE. `unittest-xml-reporting`
+  // writes `TEST-<Class>-<timestamp>.xml`, and those names never collide — so a second
+  // run into a directory nobody cleaned ADDS files rather than replacing them. Until
+  // 0.1.2 the freshness rule asked only whether ONE match had changed and the tally then
+  // summed every match, so yesterday's three passing tests carried today's floor for a
+  // run that executed nothing.
+  const dir = tmpdir();
+  const old = path.join(dir, "TEST-old.xml");
+  const fresh = path.join(dir, "TEST-new.xml");
+  fs.writeFileSync(old, fixture("junit-real.xml")); // 3 executed, from a run that ended
+  const result = await run(writer(fresh, fixture("junit-all-skipped.xml")), {
+    evidence: [reports.junit(path.join(dir, "*.xml"), { min: 3 })],
+  });
+  assert.equal(result.state, DID_NOT_RUN);
+  const detail = result.checks[0].detail;
+  assert.match(detail, /0 of 3 tests ran/);
+  assert.match(detail, /1 stale file\(s\) this run did not write/);
+  assert.match(detail, /TEST-old\.xml/);
+});
+
+test("allowStale still sums every file the glob matched", async () => {
+  // The control for the test above: the freshness rule, not the files, is what changed.
+  // `allowStale` says the report may predate the command, and a glob under it counts
+  // every match — which is the only reading of the flag that is honest.
+  const dir = tmpdir();
+  const old = path.join(dir, "TEST-old.xml");
+  const fresh = path.join(dir, "TEST-new.xml");
+  fs.writeFileSync(old, fixture("junit-real.xml"));
+  const result = await run(writer(fresh, fixture("junit-all-skipped.xml")), {
+    evidence: [reports.junit(path.join(dir, "*.xml"), { min: 3, allowStale: true })],
+  });
+  assert.equal(result.state, RAN_AND_PASSED, result.checks[0].detail);
+  assert.match(result.checks[0].detail, /3 of 7 tests ran/);
+  assert.doesNotMatch(result.checks[0].detail, /stale file/);
+});
+
+test("a glob match rewritten with the SAME bytes still counts", async () => {
+  // A deterministic runner did run, and `didrun.evidence.wrote` says so by mtime. The
+  // glob branch compared digests alone, so one file was fresh through a plain path and
+  // stale through a pattern. The mtime is pushed into the past rather than slept over,
+  // because a filesystem with one-second granularity would decide this test.
+  const dir = tmpdir();
+  const file = path.join(dir, "TEST-same.xml");
+  const body = fixture("junit-real.xml");
+  fs.writeFileSync(file, body);
+  const was = new Date(Date.now() - 10_000);
+  fs.utimesSync(file, was, was);
+  const result = await run(writer(file, body), {
+    evidence: [reports.junit(path.join(dir, "*.xml"))],
+  });
+  assert.equal(result.state, RAN_AND_PASSED, result.checks[0].detail);
+  assert.match(result.checks[0].detail, /3 of 4 tests ran/);
+});
+
 test("a report where everything failed still satisfies the floor", async () => {
   // THE CONTROL FOR THE FAILURE COUNT. This package asks whether anything ran, not whether
   // it passed — folding the two together would make it a worse test runner instead of a
@@ -370,7 +425,8 @@ test("--json-out is machine readable and carries the numbers", async () => {
   assert.equal(payload.state, RAN_AND_PASSED);
   assert.equal(payload.checks[0].satisfied, true);
   assert.deepEqual(payload.reports[0], {
-    kind: "junit", path: file, files: 1, total: 4, executed: 3, failed: 1, minimum: 1,
+    kind: "junit", path: file, files: 1, stale: 0, total: 4, executed: 3, failed: 1,
+    minimum: 1,
   });
 });
 

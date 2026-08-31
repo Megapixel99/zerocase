@@ -211,6 +211,65 @@ class ThroughDidrun(unittest.TestCase):
         self.assertIn("3 of 7 tests ran", result.checks[0].detail)
         self.assertIn("across 2 files", result.checks[0].detail)
 
+    def test_a_stale_file_the_run_did_not_write_is_left_out_of_the_sum(self):
+        """THE COUNT OF A RUN THAT IS OVER IS NOT PART OF THIS ONE.
+
+        `unittest-xml-reporting` writes `TEST-<Class>-<timestamp>.xml`, and those names
+        never collide — so a second run into a directory nobody cleaned ADDS files rather
+        than replacing them. Until 0.1.2 the freshness rule asked only whether ONE match
+        had changed and the tally then summed every match, so yesterday's three passing
+        tests carried today's floor for a run that executed nothing. That is a green run
+        of nothing wearing somebody else's total, in the package that exists to say so.
+        """
+        old = os.path.join(self.tmp, "TEST-old.xml")
+        new = os.path.join(self.tmp, "TEST-new.xml")
+        with open(old, "w") as fh:
+            fh.write(fixture("junit-real.xml"))          # 3 executed, from a run that ended
+        cmd = [sys.executable, "-c",
+               f"open({new!r},'w').write({fixture('junit-all-skipped.xml')!r})"]
+        result = run(cmd, evidence=[reports.junit(os.path.join(self.tmp, "*.xml"),
+                                                  minimum=3)])
+        self.assertEqual(result.state, DID_NOT_RUN)
+        detail = result.checks[0].detail
+        self.assertIn("0 of 3 tests ran", detail)
+        self.assertIn("1 stale file(s) this run did not write", detail)
+        self.assertIn("TEST-old.xml", detail)
+
+    def test_allow_stale_still_sums_every_file_the_glob_matched(self):
+        """The control for the test above: the freshness rule, not the files, is what
+        changed. `--allow-stale` says the report may predate the command, and a glob under
+        it counts every match — which is the only reading of the flag that is honest."""
+        old = os.path.join(self.tmp, "TEST-old.xml")
+        new = os.path.join(self.tmp, "TEST-new.xml")
+        with open(old, "w") as fh:
+            fh.write(fixture("junit-real.xml"))
+        cmd = [sys.executable, "-c",
+               f"open({new!r},'w').write({fixture('junit-all-skipped.xml')!r})"]
+        result = run(cmd, evidence=[reports.junit(os.path.join(self.tmp, "*.xml"),
+                                                  minimum=3, allow_stale=True)])
+        self.assertEqual(result.state, RAN_AND_PASSED)
+        self.assertIn("3 of 7 tests ran", result.checks[0].detail)
+        self.assertNotIn("stale file(s)", result.checks[0].detail)
+
+    def test_a_glob_match_rewritten_with_the_SAME_bytes_still_counts(self):
+        """A deterministic runner did run, and `didrun.evidence.Wrote` says so by mtime.
+
+        The glob branch compared digests alone, so one file was fresh through a plain path
+        and stale through a pattern — the two paths disagreeing about the same file for no
+        reason a user could see. The mtime is pushed into the past rather than slept over,
+        because a filesystem with one-second granularity would decide this test.
+        """
+        path = os.path.join(self.tmp, "TEST-same.xml")
+        body = fixture("junit-real.xml")
+        with open(path, "w") as fh:
+            fh.write(body)
+        was = time.time() - 10
+        os.utime(path, (was, was))
+        cmd = [sys.executable, "-c", f"open({path!r},'w').write({body!r})"]
+        result = run(cmd, evidence=[reports.junit(os.path.join(self.tmp, "*.xml"))])
+        self.assertEqual(result.state, RAN_AND_PASSED, result.checks[0].detail)
+        self.assertIn("3 of 4 tests ran", result.checks[0].detail)
+
     def test_a_report_where_everything_failed_still_satisfies_the_floor(self):
         """THE CONTROL FOR THE FAILURE COUNT. This package asks whether anything ran, not
         whether it passed — folding the two together would make it a worse test runner
@@ -344,6 +403,13 @@ class TheCommandLine(unittest.TestCase):
         payload = json.loads(out.stdout)
         self.assertEqual(payload["state"], RAN_AND_PASSED)
         self.assertTrue(payload["checks"][0]["satisfied"])
+        # THE SHAPE, not only the state — `--json-out` is a contract with something that
+        # is not a person, and the JavaScript suite pins the same keys. A field that
+        # appears in one half's payload and not the other's is a CI file that means two
+        # things, which is the thing the parity suite exists to stop.
+        self.assertEqual(payload["reports"][0],
+                         {"kind": "junit", "path": path, "files": 1, "stale": 0,
+                          "total": 4, "executed": 3, "failed": 1, "minimum": 1})
 
 
 if __name__ == "__main__":
