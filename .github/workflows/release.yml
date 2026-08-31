@@ -208,8 +208,12 @@ jobs:
         run: |
           set -euo pipefail
           version='${{ needs.check.outputs.version }}'
-          ls -1 dist
-          if ! ls dist/*.whl | grep -q -- "-$version-"; then
+          # Same here-string as the npm job below, for the same reason: `ls | grep -q`
+          # under `pipefail` can report a wheel that IS there as missing, because
+          # `grep -q` closes the pipe on the match and `ls` dies of SIGPIPE.
+          wheels=$(ls -1 dist)
+          printf '%s\n' "$wheels"
+          if ! grep -q -- "-$version-.*\.whl$" <<<"$wheels"; then
             echo "::error::no wheel in dist/ carries version $version"
             exit 1
           fi
@@ -237,17 +241,34 @@ jobs:
       - name: The tarball carries the JavaScript half and nothing else
         # `files` in package.json is an allowlist, and an allowlist that quietly stopped
         # matching ships a package whose entry point is not in it. Cheap to check.
+        #
+        # LISTED ONCE INTO A VARIABLE, and every question asked of the variable through a
+        # here-string. `tar -tzf … | grep -q …` is a trap under `pipefail`: `grep -q`
+        # exits at the FIRST match and closes the pipe, `tar` then takes SIGPIPE and
+        # exits 141, and `pipefail` makes that the status of the whole pipeline -- so
+        # `if ! …` reports a file that is present as MISSING. Whether it happens is a
+        # race with the pipe buffer, which is why it published 0.1.0 and 0.1.1 and then
+        # failed the 0.1.2 release with
+        #
+        #   tar: stdout: write error
+        #   ::error::the npm tarball is missing package/js/src/index.js
+        #
+        # two lines under a listing that contains `package/js/src/index.js`. A gate that
+        # fails a release by losing a race is worse than no gate, because the next person
+        # reads it as a real packaging fault. A here-string is a file and not a pipe, so
+        # there is no producer left to kill.
         run: |
           set -euo pipefail
           npm pack --pack-destination /tmp
           tarball=$(ls /tmp/*.tgz)
-          tar -tzf "$tarball" | sort
-          if tar -tzf "$tarball" | grep -q "package/python/"; then
+          listing=$(tar -tzf "$tarball")
+          sort <<<"$listing"
+          if grep -q "package/python/" <<<"$listing"; then
             echo "::error::the npm tarball carries the Python half"
             exit 1
           fi
           for required in package/js/src/index.js package/js/src/parse.js package/js/src/reports.js package/js/bin/zerocase.js; do
-            if ! tar -tzf "$tarball" | grep -qx "$required"; then
+            if ! grep -qx "$required" <<<"$listing"; then
               echo "::error::the npm tarball is missing $required"
               exit 1
             fi
