@@ -198,7 +198,7 @@ after the whole command line is read, so neither depends on where you put it.
 
 ```json
 "reports": [
-  {"kind": "junit", "path": "reports/junit.xml", "files": 1,
+  {"kind": "junit", "path": "reports/junit.xml", "files": 1, "stale": 0,
    "total": 4, "executed": 3, "failed": 1, "minimum": 1}
 ]
 ```
@@ -241,8 +241,12 @@ Nothing found gates a run on the denominator of the report the runner already wr
   full `junit.xml` and then does nothing satisfies this. It moves the claim from the exit
   code to the report, which is a much harder thing to fake by accident, and not an
   impossible one.
-- **`--min` is global**, applied to every report named in the same invocation. A per-report
-  floor would need a syntax nobody would remember.
+- **A floor is per KIND, not per report.** `--min` is the default for every kind and
+  `--min-KIND` overrides one of them, but name two `--junit` reports in the same
+  invocation and they share whatever floor `junit` has — there is no way to say "at least
+  20 from this one and at least 5 from that one". A per-path floor would need a syntax
+  nobody would remember, and the kinds are where the numbers actually differ: `200` is
+  sensible for `--lcov` and absurd for `--junit`.
 - **One dependency, `didrun`, and nothing else** in either half. Node ≥ 20, Python ≥ 3.9.
 
 ## Tests
