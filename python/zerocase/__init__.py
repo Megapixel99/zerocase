@@ -16,4 +16,4 @@ from .reports import Report, read, verdict
 
 __all__ = ["reports", "parse", "Report", "Tally", "ParseError", "KINDS", "read",
            "verdict"]
-__version__ = "0.1.2"
+__version__ = "0.1.3"
