@@ -212,7 +212,18 @@ jobs:
         # that has to be edited with every new test is a number people edit without
         # reading.
         run: |
-          python3 -m zerocase.cli --junit reports/py.xml --min 20 -- \
+          # A GLOB, because `unittest-xml-reporting` writes ONE FILE PER TEST CLASS --
+          # `TEST-<module>.<Class>-<timestamp>.xml`, six of them here -- and never the
+          # `reports/py.xml` the first version named. This package caught that itself on
+          # its first real CI run, in its own words:
+          #
+          #   DID NOT RUN — reports/py.xml was never created
+          #
+          # which is the tool being right about the workflow that invokes it. The glob is
+          # the correct usage AND it exercises the summing path: `41 of 41 tests ran
+          # (floor 20) — across 6 files`, where a single-file run would have exercised
+          # neither.
+          python3 -m zerocase.cli --junit 'reports/*.xml' --min 20 -- \
             python3 -m xmlrunner discover -s python/tests -o reports
 
       - name: ...and it catches a report with a zero in it
