@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zerocase"
-version = "0.1.0"
+version = "0.1.1"
 description = "A check with a zero denominator reports clean. Read the junit/TAP/lcov/eslint report the runner already wrote and put a floor under what actually ran."
 readme = "README.md"
 requires-python = ">=3.9"
