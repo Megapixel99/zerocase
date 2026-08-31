@@ -1,0 +1,9 @@
+<?xml version="1.0" ?>
+<coverage version="7.6.1" lines-valid="4" lines-covered="3" line-rate="0.75">
+  <packages><package name="src"><classes><class filename="src/a.py"><lines>
+    <line number="1" hits="1"/>
+    <line number="2" hits="4"/>
+    <line number="3" hits="0"/>
+    <line number="7" hits="2"/>
+  </lines></class></classes></package></packages>
+</coverage>

@@ -1,0 +1,246 @@
+# A tool that reports checks which never ran has to answer for its own.
+#
+# It ships TWO HALVES from one tree at one version, and the gates below are this
+# package's own property pointed back at the package:
+#
+#   1. IT GATES ITS OWN SUITES, through itself. Both suites write a JUnit report and
+#      `zerocase` is what reads it. A repository that reported "34 passed" while
+#      collecting nothing would be the joke telling itself.
+#
+#   2. AND IT CATCHES A REPORT WITH A ZERO IN IT. Gate 1 alone proves the happy path; a
+#      tool that always said "ran and passed" would satisfy it. The negative control
+#      points the same command at `fixtures/junit-empty.xml` and requires exit 3.
+#
+#   3. THE TWO HALVES AGREE ABOUT THE NUMBERS AND THE SENTENCES. A CI file that moves
+#      from `pip install` to `npm install` must not change meaning.
+#
+#   4. THERE IS EXACTLY ONE DEPENDENCY AND IT IS `didrun`. Not "no dependencies" -- this
+#      package has one on purpose, and the check is that it has not acquired a second.
+name: ci
+
+on:
+  push:
+    # `master` only. A branch with an open PR matches both triggers and every job runs
+    # twice, and a concurrency group does NOT fix it: the push event keys on
+    # `refs/heads/<branch>` while the pull_request event keys on `<branch>`.
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+  # `release.yml` calls this workflow rather than copying the jobs into itself. A
+  # release gate that has drifted from the suite it claims to be is worse than no gate.
+  workflow_call:
+
+env:
+  PYTHONPATH: python
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor is what `pyproject.toml` claims, and the claim is checked rather
+        # than trusted: `requires-python = ">=3.9"` is a promise, and a promise nothing
+        # runs is the stale-documentation defect in a metadata file. A sibling in this
+        # network shipped a 3.12-only f-string under a >=3.9 claim and did not import at
+        # all on the version it advertised.
+        python-version: ['3.9', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'   # the parity tests shell out to it
+
+      - name: one dependency, and it is didrun
+        # `dependencies = ["didrun>=0.1.0"]` is a claim about the manifest. This is the
+        # check that the CODE has not acquired a second one -- the network's rule is
+        # that edges point downward and stay few, and an import nobody declared is an
+        # edge `tools/depgraph.py` cannot see.
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet didrun
+          python3 - <<'PY'
+          import tomllib
+          deps = tomllib.load(open("pyproject.toml", "rb"))["project"]["dependencies"]
+          assert deps == ["didrun>=0.1.0"], f"dependencies drifted: {deps}"
+          PY
+          python3 -c "import zerocase, zerocase.parse, zerocase.reports, zerocase.cli; print('zerocase', zerocase.__version__)"
+
+      - name: the suites
+        run: python3 -m unittest discover -s python/tests -v
+
+  javascript:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # `package.json` says `>=20`, and `node:test` is what the suites use. 20 is in
+        # the matrix because `fs.globSync` is 22+ and `js/src/reports.js` carries a
+        # fallback for exactly that -- a fallback nothing runs is a fallback that is
+        # wrong.
+        node-version: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: one dependency here too
+        run: |
+          set -euo pipefail
+          node -e "const p=require('./package.json');
+                   const deps=Object.keys(p.dependencies||{});
+                   if (deps.length!==1 || deps[0]!=='@megapixel99/didrun') {
+                     console.error('::error::dependencies drifted: '+JSON.stringify(deps));
+                     process.exit(1);
+                   }
+                   console.log(p.name, p.version)"
+          npm install --no-audit --no-fund
+
+      - name: the suites
+        run: node --test js/test/*.test.js
+
+  versions:
+    # THE VERSION LIVES IN THREE FILES AND THAT IS THREE PLACES TO DRIFT. `pyproject.toml`
+    # is what PyPI publishes, `package.json` is what npm publishes, and `__version__` is
+    # what a user who imports the package reads back.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: all four agree
+        run: |
+          set -euo pipefail
+          py=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          js=$(node -p "require('./package.json').version")
+          # PYTHONDONTWRITEBYTECODE so this leaves no `.pyc` for a later job to read:
+          # cache invalidation is keyed on mtime at one-second granularity.
+          # `didrun` is imported by `zerocase/__init__`, so it has to be present for
+          # `__version__` to be readable at all.
+          python3 -m pip install --quiet didrun
+          dunder=$(PYTHONDONTWRITEBYTECODE=1 python3 -c "import zerocase; print(zerocase.__version__)")
+          esm=$(node -p "require('fs').readFileSync('js/src/index.js','utf8').match(/VERSION = \"([^\"]+)\"/)[1]")
+          echo "pyproject=$py  package.json=$js  __version__=$dunder  VERSION=$esm"
+          if [ "$py" != "$js" ] || [ "$py" != "$dunder" ] || [ "$py" != "$esm" ]; then
+            echo "::error::the versions disagree"
+            exit 1
+          fi
+
+  parity:
+    # THE TWO HALVES AGREE ABOUT THE NUMBERS AND THE SENTENCES, OR A CI FILE MEANS TWO
+    # THINGS.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: the halves agree, and the test was not skipped
+        # `skipUnless(node)` keeps the suite runnable for a Python-only contributor. In
+        # CI a skip and a pass look identical in a tally, so the count is asserted --
+        # which is this package's own rule applied to its own gate.
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet didrun
+          out=$(python3 -m unittest discover -s python/tests -p 'test_parity.py' -v 2>&1)
+          echo "$out"
+          if echo "$out" | grep -q "skipped"; then
+            echo "::error::the parity tests were SKIPPED, so nothing checked the contract"
+            exit 1
+          fi
+          ran=$(echo "$out" | grep -c " \.\.\. ok")
+          echo "parity assertions that ran: $ran"
+          if [ "$ran" -lt 5 ]; then
+            echo "::error::expected at least 5 parity tests, saw $ran"
+            exit 1
+          fi
+
+  itself:
+    # The tool pointed at the tool.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: python3 -m pip install --quiet didrun unittest-xml-reporting
+      - run: npm install --no-audit --no-fund
+
+      - name: it gates its own Python suite on its own JUnit report
+        # A suite whose report is empty cannot report a green run of nothing, which is
+        # the entire thesis. The floor is below the current count on purpose: a number
+        # that has to be edited with every new test is a number people edit without
+        # reading.
+        run: |
+          python3 -m zerocase.cli --junit reports/py.xml --min 20 -- \
+            python3 -m xmlrunner discover -s python/tests -o reports
+
+      - name: ...and it catches a report with a zero in it
+        # THE CONTROL FOR THE STEP ABOVE. Without it, a `zerocase` that always said "ran
+        # and passed" would satisfy it — which is precisely the failure it exists to
+        # report, in the tool that reports it. `--allow-stale` because the fixture is
+        # committed rather than written by the command; the zero is what is under test
+        # here, and the freshness rule has its own tests.
+        run: |
+          set +e
+          python3 -m zerocase.cli --junit fixtures/junit-empty.xml --allow-stale -- \
+            python3 -c "print('all green')"
+          code=$?
+          set -e
+          echo "exit=$code"
+          if [ "$code" -ne 3 ]; then
+            echo "::error::a report with 0 tests was not reported as DID NOT RUN (exit $code)"
+            exit 1
+          fi
+
+      - name: ...and a suite that skipped everything is caught too
+        # The case a total cannot see, asserted end to end rather than only in a unit
+        # test: `tests="3" skipped="3"` is a green run of nothing wearing a total.
+        run: |
+          set +e
+          python3 -m zerocase.cli --junit fixtures/junit-all-skipped.xml --allow-stale -- \
+            python3 -c "print('all green')"
+          code=$?
+          set -e
+          if [ "$code" -ne 3 ]; then
+            echo "::error::a suite that skipped every test was not caught (exit $code)"
+            exit 1
+          fi
+
+      - name: both halves answer the flagship case identically
+        # Checked from both binaries rather than from one, because the state names and
+        # exit codes are what a CI file branches on.
+        run: |
+          set +e
+          python3 -m zerocase.cli --junit fixtures/junit-empty.xml --allow-stale -- \
+            python3 -c "print('ok')" > /dev/null 2>&1
+          py=$?
+          node js/bin/zerocase.js --junit fixtures/junit-empty.xml --allow-stale -- \
+            node -e "console.log('ok')" > /dev/null 2>&1
+          js=$?
+          set -e
+          echo "python half exit=$py   javascript half exit=$js"
+          if [ "$py" -ne 3 ] || [ "$js" -ne 3 ]; then
+            echo "::error::the two halves disagree, or neither caught it"
+            exit 1
+          fi

@@ -1,0 +1,4 @@
+[
+  {"filePath": "/repo/src/a.js", "messages": [], "errorCount": 0, "warningCount": 0},
+  {"filePath": "/repo/src/b.js", "messages": [{"ruleId": "eqeqeq", "severity": 2, "line": 4}], "errorCount": 1, "warningCount": 0}
+]

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" tests="3" errors="0" failures="0" skipped="3" time="0.02">
+  <testcase classname="t.test_a" name="test_one" time="0.001"><skipped message="needs network"/></testcase>
+  <testcase classname="t.test_a" name="test_two" time="0.001"><skipped message="needs network"/></testcase>
+  <testcase classname="t.test_b" name="test_three" time="0.001"><skipped message="needs network"/></testcase>
+</testsuite>

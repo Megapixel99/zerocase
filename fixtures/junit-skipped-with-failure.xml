@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A shape real runners emit: a case marked skipped that also carries the failure it
+     was skipped BECAUSE of (an xfail, a quarantined flake, a rerun that gave up). It did
+     not run, so it cannot have failed, and counting it as both is how a suite that skips
+     everything comes to look like a suite that broke everything. -->
+<testsuite name="quarantine" tests="2" failures="1" skipped="1">
+  <testcase classname="t.a" name="known flake">
+    <skipped message="quarantined"/>
+    <failure message="AssertionError">expected 3, got 4</failure>
+  </testcase>
+  <testcase classname="t.a" name="works"/>
+</testsuite>

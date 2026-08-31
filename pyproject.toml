@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zerocase"
+version = "0.1.0"
+description = "A check with a zero denominator reports clean. Read the junit/TAP/lcov/eslint report the runner already wrote and put a floor under what actually ran."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["ci", "junit", "tap", "lcov", "cobertura", "eslint", "coverage",
+            "test-count", "zero-tests", "empty-glob", "denominator", "evidence",
+            "guard", "verification", "false-positive", "silent-failure"]
+# LAYER 1. One edge, and it is load-bearing rather than decorative: `didrun` supplies
+# the running, the four states, the exit codes and the timeout classification, and this
+# package supplies predicates that plug into them. Reimplementing any of that would be
+# the second copy `canfail` deleted when it took its `restore-verified` dependency.
+#
+# `didrun`'s README names this gap in its own Limits section -- "It does not parse
+# junit/TAP" -- so the edge points at the package whose author declined to close it.
+# Dependencies point strictly downward; `tools/depgraph.py` in the reckoner tree
+# asserts it.
+dependencies = ["didrun>=0.1.0"]
+
+[project.scripts]
+zerocase = "zerocase.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "python" }
+packages = ["zerocase"]
