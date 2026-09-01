@@ -1,5 +1,10 @@
 # `zerocase`
 
+[![npm](https://img.shields.io/npm/v/zerocase)](https://www.npmjs.com/package/zerocase)
+[![PyPI](https://img.shields.io/pypi/v/zerocase)](https://pypi.org/project/zerocase/)
+[![CI](https://github.com/Megapixel99/zerocase/actions/workflows/ci.yml/badge.svg)](https://github.com/Megapixel99/zerocase/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A check with a zero denominator reports clean.**
 
 A suite that collected nothing, a lint whose glob matched nothing, a coverage run over no
