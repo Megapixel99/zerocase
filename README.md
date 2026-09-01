@@ -7,9 +7,9 @@
 
 **A check with a zero denominator reports clean.**
 
-A suite that collected nothing, a lint whose glob matched nothing, a coverage run over no
-statements; every one of them exits 0, and every one of them has already written the
-number down in a file with a field name on it.
+A suite in which every test was skipped, a lint whose glob matched nothing, a coverage
+run over no statements; every one of them exits 0, and every one of them has already
+written the number down in a file with a field name on it.
 
 ```sh
 pip install zerocase            # the Python half
@@ -21,12 +21,12 @@ zerocase --eslint out.json -- npx eslint src --format json -o out.json
 ```
 
 ```
-$ zerocase --junit reports/junit.xml -- pytest -m "integration" tests/
-======================== 0 passed, 214 deselected in 0.31s =========================
+$ zerocase --junit reports/junit.xml -- pytest --junitxml=reports/junit.xml tests/
+============================= 214 skipped in 0.14s =============================
 
-[zerocase] DID NOT RUN — there is no evidence this command did anything  (exit 0, 412ms)
-  --  reports/junit.xml reports at least 1 tests that ran: 0 tests in the report — the
-      denominator is zero, so there was nothing here this check could have objected to
+[zerocase] DID NOT RUN — there is no evidence this command did anything  (exit 0, 461ms)
+  --  reports/junit.xml reports at least 1 tests that ran: 0 of 214 tests ran — the
+      report is not empty, and nothing in it happened
 
   It exited 0. That is the failure: a check that stopped checking reports exactly this.
 $ echo $?
@@ -158,8 +158,9 @@ percent every time.
 
 The rows where this earns its keep are the ones that produce a machine-readable report
 *and* have no opinion about its being empty. If your runner is in the first two rows, you
-probably do not need this, though `pytest -m "some-marker"` that deselects everything
-exits 0, and that is the first row failing at the second question.
+probably do not need this, though `pytest` answers only for collection: deselecting
+everything exits 5 as well, but a suite in which every test is skipped prints
+`214 skipped`, exits 0, and is the first row failing at the second question.
 
 ## API
 
