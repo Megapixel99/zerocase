@@ -427,6 +427,43 @@ test("read on an empty report exits 3", async () => {
   assert.equal(out.code, EXIT_DID_NOT_RUN);
 });
 
+test("read refuses a floor rather than silently ignoring it", async () => {
+  // THE REGRESSION THIS EXISTS FOR. `read` used to drop everything past the path, so
+  // `--min 4` beside a report holding 1 exited 0: a floor written down in a CI file, in
+  // review and in the blame, that nothing on earth enforced. A promise nothing runs is
+  // the defect this package is about, and shipping it inside `read` was the joke telling
+  // itself. Exit 2 — could not run — is the honest answer, and `--min` still means what
+  // it says in the wrapper form, which is the form that also checks freshness.
+  const out = await zerocase(
+    "read", "--junit", path.join(FIXTURES, "junit-real.xml"), "--min", "9"
+  );
+  assert.equal(out.code, 2);
+  assert.match(out.stderr, /unexpected argument --min/);
+  assert.match(out.stderr, /wrapper form/);
+});
+
+test("read refuses an unquoted glob rather than reading the first match", async () => {
+  // The same silence wearing different clothes: the shell expands `*.xml` before the
+  // process starts, so `read --junit reports/*.xml` arrives as three arguments and the
+  // second and third used to vanish. `read` sums a glob when it is given ONE — and the
+  // difference between "summed five reports" and "read one of five" is invisible in the
+  // output, which is exactly the kind of quiet undercount this tool exists to refuse.
+  const dir = tmpdir();
+  for (const name of ["a.xml", "b.xml"]) {
+    fs.writeFileSync(path.join(dir, name), fixture("junit-real.xml"));
+  }
+  const expanded = fs.readdirSync(dir).sort().map((n) => path.join(dir, n));
+  assert.equal(expanded.length, 2, "the shell must have had two matches to expand");
+  const out = await zerocase("read", "--junit", ...expanded);
+  assert.equal(out.code, 2);
+  assert.match(out.stderr, /quote a glob/);
+
+  // And quoted, it is the sum — the behaviour the refusal is steering people toward.
+  const quoted = await zerocase("read", "--junit", path.join(dir, "*.xml"));
+  assert.equal(quoted.code, 0);
+  assert.match(quoted.stdout, /6 of 8 tests ran/);
+});
+
 test("--json-out is machine readable and carries the numbers", async () => {
   const dir = tmpdir();
   const file = path.join(dir, "junit.xml");

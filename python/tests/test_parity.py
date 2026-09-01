@@ -28,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 FIXTURES = os.path.join(ROOT, "fixtures")
 DUMP = os.path.join(ROOT, "js", "test", "dump.mjs")
+BIN = os.path.join(ROOT, "js", "bin", "zerocase.js")
 
 import sys
 sys.path.insert(0, os.path.join(ROOT, "python"))
@@ -176,6 +177,64 @@ class TheHalvesAgree(unittest.TestCase):
         mine = [{"satisfied": s, "detail": d}
                 for s, d in (verdict(k, 1, 1, 1) for k in parsers.KINDS)]
         self.assertEqual(mine, theirs)
+
+
+# THE ARGUMENT SHAPES BOTH HALVES MUST REFUSE, and refuse in the same words. `verdict`
+# parity is compared through `dump.mjs`, which never starts either command line — so the
+# stderr of a refusal was two independent strings in two files with nothing holding them
+# together. `read`'s trailing-argument refusal is the one that made this worth writing:
+# it is three lines long, it teaches the reader about globs and about `--min`, and a
+# half that teaches it differently is a half that is telling somebody something else.
+#
+# EVERY ROW IS AN ARGUMENT SHAPE, never a broken file. `read --junit missing.xml` is the
+# operating system talking (`ENOENT: no such file or directory` against `[Errno 2] No
+# such file or directory`) and demanding those match would be demanding Node and CPython
+# phrase themselves alike, which is not this package's promise.
+REFUSALS = [
+    ["read", "--junit", os.path.join(FIXTURES, "junit-real.xml"), "--min", "9"],
+    ["read", "--junit", os.path.join(FIXTURES, "junit-real.xml"),
+     os.path.join(FIXTURES, "junit-empty.xml")],
+    ["read", "--bogus", os.path.join(FIXTURES, "junit-real.xml")],
+    ["read", "--junit"],
+    ["read", "--json", os.path.join(FIXTURES, "summary.json")],
+    ["--junit", os.path.join(FIXTURES, "junit-real.xml")],
+    ["--"],
+]
+
+
+@unittest.skipUnless(node, "node is not on PATH")
+class TheRefusalsAgreeWordForWord(unittest.TestCase):
+    """Exit 2 is a sentence as much as a number, and it is the sentence people act on."""
+
+    def _js(self, args):
+        return subprocess.run([node, BIN, *args], capture_output=True, text=True, cwd=ROOT)
+
+    def _py(self, args):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [os.path.join(ROOT, "python"), env.get("PYTHONPATH", "")])
+        return subprocess.run([sys.executable, "-m", "zerocase.cli", *args],
+                              capture_output=True, text=True, env=env, cwd=ROOT)
+
+    def test_both_halves_refuse_the_same_shapes_in_the_same_words(self):
+        for args in REFUSALS:
+            with self.subTest(args=" ".join(args)):
+                mine, theirs = self._py(args), self._js(args)
+                self.assertEqual(mine.returncode, 2,
+                                 f"the Python half did not refuse: {mine.stderr}")
+                self.assertEqual(theirs.returncode, 2,
+                                 f"the JavaScript half did not refuse: {theirs.stderr}")
+                self.assertEqual(mine.stderr, theirs.stderr)
+
+    def test_the_refusal_table_reaches_the_floor_that_read_cannot_apply(self):
+        """A table that only ever exercised `--junit` with no path proves one branch.
+
+        `read --junit r.xml --min 9` is the row with a history: it exited 0 once, having
+        silently dropped a floor somebody wrote down on purpose.
+        """
+        stderr = self._py(REFUSALS[0]).stderr
+        self.assertIn("unexpected argument --min", stderr)
+        self.assertIn("wrapper form", stderr)
 
 
 class TheTableCoversTheFixtures(unittest.TestCase):

@@ -73,6 +73,20 @@ def _read_mode(argv):
         sys.stderr.write("zerocase read: give a kind and a path, e.g. "
                          "`zerocase read --junit reports/junit.xml`\n")
         return 2
+    # AND NOT ONE ARGUMENT MORE. Everything past `argv[1]` used to be dropped in silence,
+    # which made `read --junit r.xml --min 4` a floor of 4 that enforced `> 0` — the exact
+    # stale promise this package exists to catch, told about itself. Unquoted globs land
+    # here too: the shell expands `reports/*.xml` into three arguments and only the first
+    # was ever read. `read` takes ONE kind and ONE path; a floor belongs to the wrapper
+    # form, which checks freshness and can therefore mean it.
+    if len(argv) > 2:
+        sys.stderr.write(f"zerocase read: unexpected argument {argv[2]} — read takes "
+                         "one kind and one path\n"
+                         "               (quote a glob: --junit 'reports/*.xml'; "
+                         "--min applies to the\n"
+                         "               wrapper form, which is the form that checks "
+                         "freshness)\n")
+        return 2
     flag, path = argv[0], argv[1]
     pointer = None
     if flag == "--json":

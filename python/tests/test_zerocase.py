@@ -407,6 +407,47 @@ class TheCommandLine(unittest.TestCase):
         out = self._zerocase("read", "--junit", os.path.join(FIXTURES, "junit-empty.xml"))
         self.assertEqual(out.returncode, EXIT_DID_NOT_RUN)
 
+    def test_read_refuses_a_floor_rather_than_silently_ignoring_it(self):
+        """THE REGRESSION THIS EXISTS FOR.
+
+        `read` used to drop everything past the path, so `--min 4` beside a report
+        holding 1 exited 0: a floor written down in a CI file, in review and in the
+        blame, that nothing on earth enforced. A promise nothing runs is the defect this
+        package is about, and shipping it inside `read` was the joke telling itself.
+        Exit 2 — could not run — is the honest answer, and `--min` still means what it
+        says in the wrapper form, which is the form that also checks freshness.
+        """
+        out = self._zerocase("read", "--junit", os.path.join(FIXTURES, "junit-real.xml"),
+                             "--min", "9")
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("unexpected argument --min", out.stderr)
+        self.assertIn("wrapper form", out.stderr)
+
+    def test_read_refuses_an_unquoted_glob_rather_than_reading_the_first_match(self):
+        """The same silence wearing different clothes.
+
+        The shell expands `*.xml` before the process starts, so `read --junit
+        reports/*.xml` arrives as three arguments and the second and third used to
+        vanish. `read` sums a glob when it is given ONE — and the difference between
+        "summed five reports" and "read one of five" is invisible in the output, which is
+        exactly the kind of quiet undercount this tool exists to refuse.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("a.xml", "b.xml"):
+                with open(os.path.join(tmp, name), "w", encoding="utf-8") as fh:
+                    fh.write(fixture("junit-real.xml"))
+            expanded = sorted(os.path.join(tmp, n) for n in os.listdir(tmp))
+            self.assertEqual(len(expanded), 2,
+                             "the shell must have had two matches to expand")
+            out = self._zerocase("read", "--junit", *expanded)
+            self.assertEqual(out.returncode, 2)
+            self.assertIn("quote a glob", out.stderr)
+
+            # And quoted, it is the sum — the behaviour the refusal steers people toward.
+            quoted = self._zerocase("read", "--junit", os.path.join(tmp, "*.xml"))
+            self.assertEqual(quoted.returncode, 0)
+            self.assertIn("6 of 8 tests ran", quoted.stdout)
+
     def test_json_out_is_machine_readable(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "junit.xml")
