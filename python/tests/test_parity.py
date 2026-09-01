@@ -44,6 +44,7 @@ TALLIES = [
     ("junit", "junit-real.xml", None),
     ("junit", "junit-lying-header.xml", None),
     ("junit", "junit-comment-trap.xml", None),
+    ("junit", "junit-gt-in-attr.xml", None),
     ("junit", "junit-skipped-with-failure.xml", None),
     ("junit", "junit-not.xml", None),
     ("tap", "tap-zero.tap", None),

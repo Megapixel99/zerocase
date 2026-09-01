@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="cli --at &lt;file>" tests="9" failures="0" skipped="1">
+  <testcase classname="t.cli" name="--at &lt;file>:&lt;line>:&lt;col> renders" time="0.01"/>
+  <testcase classname="t.cli" name="--at &lt;file>:&lt;offset> renders" time="0.01"/>
+  <testcase classname="t.cli" name="reports a range" time="0.01"/>
+  <testcase classname="t.cli" name="--at &lt;file> alone" time="0.00"><skipped/></testcase>
+</testsuite>
