@@ -99,9 +99,16 @@ def _strip(text):
     return _CDATA.sub("", _COMMENT.sub("", text))
 
 
-_TAG = re.compile(r"<\s*(/?)\s*(testcase|skipped|failure|error)\b([^>]*?)(/?)\s*>",
-                  re.I | re.S)
-_SUITE_ATTR = re.compile(r"<\s*testsuite\b([^>]*?)/?\s*>", re.I | re.S)
+# A tag ends at the first `>` OUTSIDE a quoted attribute value, which is why the
+# attribute span consumes quoted runs whole rather than scanning to the next `>`. XML
+# requires `<` and `&` to be escaped and leaves `>` alone, so a test named
+# `--at <file>:<line>` is written `name="--at &lt;file>:&lt;line>"` and is well-formed.
+# Stopping at that `>` drops the `/` of a self-closing `<testcase/>`; the case is then
+# read as still open, the next one silently replaces it, and a test goes missing.
+_TAG = re.compile(r"""<\s*(/?)\s*(testcase|skipped|failure|error)\b"""
+                  r"""((?:"[^"]*"|'[^']*'|[^>"'])*?)(/?)\s*>""", re.I | re.S)
+_SUITE_ATTR = re.compile(r"""<\s*testsuite\b((?:"[^"]*"|'[^']*'|[^>"'])*?)/?\s*>""",
+                         re.I | re.S)
 _ATTR = re.compile(r"([\w:.-]+)\s*=\s*\"([^\"]*)\"|([\w:.-]+)\s*=\s*'([^']*)'")
 
 

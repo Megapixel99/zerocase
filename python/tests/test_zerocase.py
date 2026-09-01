@@ -63,6 +63,20 @@ class WhatTheParsersSay(unittest.TestCase):
         t = parsers.junit(fixture("junit-comment-trap.xml"))
         self.assertEqual((t.total, t.executed), (1, 1))
 
+    def test_a_raw_gt_inside_an_attribute_value_does_not_end_the_tag(self):
+        """XML escapes `<` and leaves `>` alone, and a test name may contain one.
+
+        `--at <file>:<line>` reaches the report as `name="--at &lt;file>:&lt;line>"` and
+        is well-formed. A scanner that ended the tag at that `>` drops the `/` of the
+        self-closing element, reads the case as still open, and loses it when the next
+        one replaces it: one test short, on a report that parsed and looked fine.
+        """
+        t = parsers.junit(fixture("junit-gt-in-attr.xml"))
+        self.assertEqual((t.total, t.executed), (4, 3))
+        # The same truncation in the `<testsuite>` tag hides the header's claim
+        # entirely, and a header that cannot be read cannot be contradicted.
+        self.assertIn('claims tests="9"', t.note)
+
     def test_tap_reads_the_plan_and_the_skip_directive(self):
         zero = parsers.tap(fixture("tap-zero.tap"))
         self.assertEqual((zero.total, zero.executed), (0, 0))

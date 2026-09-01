@@ -65,6 +65,19 @@ test("xml quoted inside a comment or CDATA is not a test", () => {
   assert.deepEqual([t.total, t.executed], [1, 1]);
 });
 
+test("a raw `>` inside an attribute value does not end the tag", () => {
+  // XML escapes `<` and leaves `>` alone, so a test named `--at <file>:<line>` reaches
+  // the report as `name="--at &lt;file>:&lt;line>"` and is well-formed. A scanner that
+  // ended the tag at that `>` drops the `/` of the self-closing element, reads the case
+  // as still open, and loses it when the next one replaces it: one test short, on a
+  // report that parsed and looked fine.
+  const t = parsers.junit(fixture("junit-gt-in-attr.xml"));
+  assert.deepEqual([t.total, t.executed], [4, 3]);
+  // The same truncation in the `<testsuite>` tag hides the header's claim entirely,
+  // and a header that cannot be read is a header that cannot be contradicted.
+  assert.match(t.note, /claims tests="9"/);
+});
+
 test("tap reads the plan and the skip directive", () => {
   const zero = parsers.tap(fixture("tap-zero.tap"));
   assert.deepEqual([zero.total, zero.executed], [0, 0]);
