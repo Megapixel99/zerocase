@@ -121,6 +121,13 @@ Under `--allow-stale` there is no "this run" to compare against, so every match 
 check freshness. It says so on every run, because that is the whole reason the gate takes
 a command instead of a filename.
 
+It takes **one kind and one path**, and refuses anything else with exit 2 rather than
+dropping it. Both things people trailed onto it used to vanish in silence: `--min 4`,
+which `read` has no floor to apply it to and which belongs to the wrapper form that
+checks freshness, and an unquoted `reports/*.xml`, which the shell expands into arguments
+before the process starts — so only the first match was ever read. A floor that enforces
+nothing and a glob that counted one file of five both look exactly like a pass.
+
 ## Count the elements, not the attributes
 
 `<testsuite tests="47">` is a claim the writer made. Forty-seven `<testcase>` elements are
