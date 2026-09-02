@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -348,6 +349,65 @@ class TheValuedFlagTableIsComplete(unittest.TestCase):
                         self.assertTrue(printed,
                                         f"{flag} takes no value, so the `-h` after it was "
                                         f"ours and usage should have printed")
+
+
+@unittest.skipUnless(node, "node is not on PATH")
+class TheTimeoutIsSecondsInBothHalves(unittest.TestCase):
+    """`--timeout` crosses into `didrun`, whose two halves take different units.
+
+    `didrun.run()` takes MILLISECONDS in JavaScript, because that is what `setTimeout`
+    takes, and SECONDS in Python, because that is what `subprocess.run` takes. Both of
+    this package's usage texts promise SECONDS, so the JavaScript half multiplies by a
+    thousand and the Python half passes the number through. Two different conversions
+    keeping one promise, and nothing checked either of them.
+
+    didrun 0.1.5 is where that mattered: its own CLI had passed the number straight
+    through on both sides, so `--timeout 5` killed at 5ms there and 5s here. This package
+    always converted; what it never had was a test saying so, which is the difference
+    between being right and staying right.
+    """
+
+    _js = TheRefusalsAgreeWordForWord._js
+    _py = TheRefusalsAgreeWordForWord._py
+
+    def _writes_after(self, tmp, seconds):
+        """A command that sleeps, then writes a report the gate is waiting for."""
+        report = os.path.join(tmp, "junit.xml")
+        with open(os.path.join(FIXTURES, "junit-real.xml"), encoding="utf-8") as fh:
+            body = fh.read()
+        runner = os.path.join(tmp, f"runner{seconds}.py")
+        with open(runner, "w", encoding="utf-8") as fh:
+            fh.write(f"import time; time.sleep({seconds})\n"
+                     f"open({report!r}, 'w').write({body!r})\n")
+        return report, [sys.executable, runner]
+
+    def test_a_timeout_that_must_fire_fires_in_both_halves(self):
+        """One second against a three second command. The report is never written, so
+        the verdict is DID NOT RUN and not a pass."""
+        for half, run in (("python", self._py), ("javascript", self._js)):
+            with self.subTest(half=half):
+                with tempfile.TemporaryDirectory() as tmp:
+                    report, cmd = self._writes_after(tmp, 3)
+                    out = run(["--junit", report, "--timeout", "1", "--", *cmd])
+                    self.assertEqual(out.returncode, 3)
+                    self.assertFalse(os.path.exists(report),
+                                     "the command outlived a timeout that should have "
+                                     "killed it")
+
+    def test_a_timeout_that_must_not_fire_does_not(self):
+        """Five seconds against a fifth of one.
+
+        THIS IS THE ROW THAT READS THE UNIT. Five milliseconds would kill this command,
+        so a half that forgot to convert fails here and nowhere else: the test above
+        passes either way, because a wrong unit kills harder rather than less.
+        """
+        for half, run in (("python", self._py), ("javascript", self._js)):
+            with self.subTest(half=half):
+                with tempfile.TemporaryDirectory() as tmp:
+                    report, cmd = self._writes_after(tmp, 0.2)
+                    out = run(["--junit", report, "--timeout", "5", "--", *cmd])
+                    self.assertEqual(out.returncode, 0, out.stderr)
+                    self.assertTrue(os.path.exists(report))
 
 
 class TheTableCoversTheFixtures(unittest.TestCase):
