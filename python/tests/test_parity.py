@@ -281,6 +281,75 @@ class TheRefusalsAgreeWordForWord(unittest.TestCase):
         self.assertIn("wrapper form", stderr)
 
 
+# EVERY FLAG THE WRAPPER FORM ACCEPTS. `VALUED` in each half decides two things at once:
+# whether a `-h` is ours or the previous flag's value, and whether a flag at the end of
+# the line is missing something. A flag added to the parse loop and forgotten in `VALUED`
+# reopens both, silently and in the passing direction.
+#
+# WHAT THIS CANNOT DO is notice a flag that is in neither the loop nor this list. It reads
+# valuedness out of the parse loop's own behaviour rather than out of `VALUED`, so the two
+# tables cannot drift apart without failing here; a THIRD place is still needed for a flag
+# nobody wrote down twice. Adding the flag's row here is the same edit as adding its test.
+FLAGS = [
+    "--junit", "--tap", "--lcov", "--cobertura", "--eslint", "--json",
+    "--expect", "--expect-stdout", "--expect-stderr", "--expect-count",
+    "--wrote", "--took-at-least", "--min", "--min-lcov", "--min-junit",
+    "--expect-failure", "--timeout",
+    "--allow-stale", "--quiet", "--json-out",
+]
+PROBE = "--zerocase-probe-unknown"
+
+
+@unittest.skipUnless(node, "node is not on PATH")
+class TheValuedFlagTableIsComplete(unittest.TestCase):
+    """Does the flag swallow the next argument, and does `VALUED` know that it does?"""
+
+    _js = TheRefusalsAgreeWordForWord._js
+    _py = TheRefusalsAgreeWordForWord._py
+
+    def _swallows(self, run, flag):
+        """Ask the PARSE LOOP, not the table.
+
+        A flag that takes a value eats `PROBE`; a flag that does not leaves it in flag
+        position, where it comes back as `unknown option`. Neither answer consults
+        `VALUED`, which is what makes this an independent reading of the same fact.
+        """
+        out = run(["--junit", os.path.join(FIXTURES, "junit-real.xml"), flag, PROBE,
+                   "--", sys.executable, "-c", ""])
+        return f"unknown option {PROBE}" not in out.stderr
+
+    def test_both_halves_agree_about_which_flags_take_a_value(self):
+        mine = {f: self._swallows(self._py, f) for f in FLAGS}
+        theirs = {f: self._swallows(self._js, f) for f in FLAGS}
+        self.assertEqual(mine, theirs)
+        self.assertTrue(any(mine.values()), "no flag took a value, so this compares nothing")
+        self.assertFalse(all(mine.values()), "every flag took a value, so does this")
+
+    def test_the_help_scan_steps_over_exactly_the_flags_that_take_a_value(self):
+        """The drift guard.
+
+        For a valued flag, `FLAG -h` is that flag's value and the command must run. For a
+        boolean one, the `-h` is in flag position and IS ours, so usage must print. Both
+        directions matter: a valued flag missing from `VALUED` reopens the exit-0 bypass,
+        and a boolean one wrongly in it swallows a `-h` somebody meant for us.
+        """
+        for flag in FLAGS:
+            for half, run in (("python", self._py), ("javascript", self._js)):
+                with self.subTest(flag=flag, half=half):
+                    valued = self._swallows(run, flag)
+                    out = run(["--junit", os.path.join(FIXTURES, "junit-real.xml"),
+                               flag, "-h", "--", sys.executable, "-c", ""])
+                    printed = "a check with a zero denominator" in out.stderr
+                    if valued:
+                        self.assertFalse(printed,
+                                         f"{flag} takes a value, and its `-h` printed our "
+                                         f"usage: {flag} is missing from VALUED")
+                    else:
+                        self.assertTrue(printed,
+                                        f"{flag} takes no value, so the `-h` after it was "
+                                        f"ours and usage should have printed")
+
+
 class TheTableCoversTheFixtures(unittest.TestCase):
     def test_every_fixture_is_in_the_table(self):
         """A fixture nothing compares looks exactly like one that does."""
