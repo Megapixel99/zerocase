@@ -60,6 +60,25 @@ const FLAG_FOR = Object.fromEntries(
 // `--lcov` and absurd for `--junit` in the same invocation, and the first version made you
 // choose. `--min` remains the default for every kind that has no `--min-KIND`.
 const MIN_FLAG_FOR = Object.fromEntries(KINDS.map((k) => [`--min-${k}`, k]));
+// THE FLAGS THAT SWALLOW THE NEXT ARGUMENT. `-h` is only ours in FLAG POSITION: as the
+// value of `--expect` it is a regex, as the value of `--junit` it is a path, and reading
+// either as a request for help prints usage and returns 0 without running the command --
+// the same gate-that-cannot-fail the `--` split closed, one argument further in.
+const VALUED = new Set([
+  ...Object.keys(FLAG_FOR),
+  ...Object.keys(MIN_FLAG_FOR),
+  "--json", "--expect", "--expect-stdout", "--expect-stderr", "--expect-count",
+  "--wrote", "--took-at-least", "--min", "--expect-failure", "--timeout",
+]);
+
+/** Is `-h`/`--help` here as OUR flag, rather than as some other flag's value? */
+function wantsUsage(ours) {
+  for (let i = 0; i < ours.length; i += 1) {
+    if (ours[i] === "-h" || ours[i] === "--help") return true;
+    if (VALUED.has(ours[i])) i += 1;   // the next argument is a value, not a flag
+  }
+  return false;
+}
 
 function readMode(argv) {
   if (argv.length < 2) {
@@ -135,7 +154,7 @@ export async function main(argv = process.argv.slice(2)) {
   // `zerocase --json r.json:n --min 4 -- mysqldump -h db` reported clean forever.
   // `didrun` had the same scan and fixed it in 0.1.3; this is that fix, in its sibling.
   const ours = split < 0 ? argv : argv.slice(0, split);
-  if (argv.length === 0 || ours.includes("-h") || ours.includes("--help")) {
+  if (argv.length === 0 || wantsUsage(ours)) {
     process.stderr.write(USAGE);
     return argv.length === 0 ? 2 : 0;
   }
@@ -161,10 +180,25 @@ export async function main(argv = process.argv.slice(2)) {
   let allowStale = false;
   const perKind = {};
 
+  // A MISSING VALUE IS COULD-NOT-RUN (2), NOT THE COMMAND'S OWN STATUS, and it is settled
+  // HERE so that no predicate is built from half an argument list. `value()` used to throw
+  // out of `main`: node printed an unhandled rejection and exited 1, the code reserved for
+  // the wrapped command failing normally, so a CI file branching on didrun's table read a
+  // zerocase usage error as a test failure. The walk is `wantsUsage`'s, over the same
+  // table -- a flag that swallows the next argument needs one to swallow.
+  for (let i = 0; i < flags.length; i += 1) {
+    if (!VALUED.has(flags[i])) continue;
+    if (i + 1 >= flags.length) {
+      process.stderr.write(`zerocase: ${flags[i]} needs a value\n`);
+      return 2;
+    }
+    i += 1;
+  }
   for (let i = 0; i < flags.length; i += 1) {
     const flag = flags[i];
     const value = () => {
       i += 1;
+      // Unreachable: the walk above proved every valued flag has one.
       if (i >= flags.length) throw new Error(`zerocase: ${flag} needs a value`);
       return flags[i];
     };

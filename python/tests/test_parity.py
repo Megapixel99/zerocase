@@ -199,6 +199,11 @@ REFUSALS = [
     ["read", "--json", os.path.join(FIXTURES, "summary.json")],
     ["--junit", os.path.join(FIXTURES, "junit-real.xml")],
     ["--"],
+    # A valued flag with nothing to swallow. Both halves used to exit 1 here -- the code
+    # reserved for the wrapped command failing normally -- and the JavaScript half got
+    # there by way of an unhandled rejection and a stack trace.
+    ["--junit", os.path.join(FIXTURES, "junit-real.xml"), "--expect", "--", "echo", "hi"],
+    ["--junit", os.path.join(FIXTURES, "junit-real.xml"), "--min", "--", "echo", "hi"],
 ]
 
 
@@ -247,13 +252,23 @@ class TheRefusalsAgreeWordForWord(unittest.TestCase):
         reached and spawned, which is the whole assertion. A half still scanning all of
         argv would print its usage and return 0 without ever getting that far.
         """
-        args = ["--junit", os.path.join(FIXTURES, "junit-real.xml"),
-                "--", "/nonexistent/zerocase-probe", "-h", "db"]
-        mine, theirs = self._py(args), self._js(args)
-        self.assertEqual(mine.returncode, theirs.returncode)
-        self.assertNotEqual(mine.returncode, 0)
-        for out in (mine, theirs):
-            self.assertNotIn("a check with a zero denominator", out.stderr)
+        shapes = [
+            # after the `--`, it is the command's
+            ["--junit", os.path.join(FIXTURES, "junit-real.xml"),
+             "--", "/nonexistent/zerocase-probe", "-h", "db"],
+            # before it, it is still not ours when another flag swallowed it
+            ["--junit", os.path.join(FIXTURES, "junit-real.xml"), "--expect", "-h",
+             "--", "/nonexistent/zerocase-probe"],
+            ["--junit", os.path.join(FIXTURES, "junit-real.xml"), "--expect-failure",
+             "--help", "--", "/nonexistent/zerocase-probe"],
+        ]
+        for args in shapes:
+            with self.subTest(args=" ".join(args)):
+                mine, theirs = self._py(args), self._js(args)
+                self.assertEqual(mine.returncode, theirs.returncode)
+                self.assertNotEqual(mine.returncode, 0)
+                for out in (mine, theirs):
+                    self.assertNotIn("a check with a zero denominator", out.stderr)
 
     def test_the_refusal_table_reaches_the_floor_that_read_cannot_apply(self):
         """A table that only ever exercised `--junit` with no path proves one branch.
