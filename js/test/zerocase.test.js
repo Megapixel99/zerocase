@@ -427,6 +427,55 @@ test("read on an empty report exits 3", async () => {
   assert.equal(out.code, EXIT_DID_NOT_RUN);
 });
 
+test("a `--help` in the command under test is not zerocase's own", async () => {
+  // THE GATE THAT COULD NOT FAIL. `main` scanned the whole of argv for `-h`/`--help`
+  // before it split on `--`, so a flag belonging to the wrapped command printed OUR
+  // usage and returned 0 without ever spawning it. The report here is empty and the
+  // floor is unmet, so the only way to exit 0 is to never look — and the marker file
+  // proves the command was actually run rather than skipped into a pass.
+  const dir = tmpdir();
+  const file = path.join(dir, "junit.xml");
+  const runner = path.join(dir, "runner.js");
+  fs.writeFileSync(
+    runner,
+    `require("fs").writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(fixture("junit-empty.xml"))})`
+  );
+  const out = await zerocase("--junit", file, "--", process.execPath, runner, "--help");
+  assert.equal(out.code, EXIT_DID_NOT_RUN);
+  assert.ok(fs.existsSync(file), "the command under test never ran");
+  assert.doesNotMatch(out.stderr, /a check with a zero denominator/);
+});
+
+test("`-h` in the command under test is a hostname, not our flag", async () => {
+  // `--help` needs a command that takes it. `-h` needs nothing unusual at all: it is a
+  // hostname to `mysqldump`, `curl` and `ab`, so this shape was a gate reporting clean
+  // forever on a report it never opened.
+  const dir = tmpdir();
+  const file = path.join(dir, "junit.xml");
+  const runner = path.join(dir, "runner.js");
+  fs.writeFileSync(
+    runner,
+    `require("fs").writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(fixture("junit-empty.xml"))})`
+  );
+  const out = await zerocase(
+    "--junit", file, "--", process.execPath, runner, "-h", "dbhost"
+  );
+  assert.equal(out.code, EXIT_DID_NOT_RUN);
+  assert.ok(fs.existsSync(file), "the command under test never ran");
+});
+
+test("zerocase's own --help still prints usage and exits 0", async () => {
+  // The flag has to keep working where it IS ours, or the fix above is a regression
+  // wearing a test.
+  for (const flag of ["-h", "--help"]) {
+    const out = await zerocase(flag);
+    assert.equal(out.code, 0, flag);
+    assert.match(out.stderr, /a check with a zero denominator/);
+  }
+  const bare = await zerocase();
+  assert.equal(bare.code, 2, "no arguments at all is could-not-run, not help");
+});
+
 test("read refuses a floor rather than silently ignoring it", async () => {
   // THE REGRESSION THIS EXISTS FOR. `read` used to drop everything past the path, so
   // `--min 4` beside a report holding 1 exited 0: a floor written down in a CI file, in

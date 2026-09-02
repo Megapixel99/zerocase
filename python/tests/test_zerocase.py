@@ -407,6 +407,52 @@ class TheCommandLine(unittest.TestCase):
         out = self._zerocase("read", "--junit", os.path.join(FIXTURES, "junit-empty.xml"))
         self.assertEqual(out.returncode, EXIT_DID_NOT_RUN)
 
+    def test_a_help_in_the_command_under_test_is_not_zerocases_own(self):
+        """THE GATE THAT COULD NOT FAIL.
+
+        `main` scanned the whole of argv for `-h`/`--help` before it split on `--`, so a
+        flag belonging to the wrapped command printed OUR usage and returned 0 without
+        ever spawning it. The report here is empty and the floor is unmet, so the only
+        way to exit 0 is to never look — and the marker file proves the command was
+        actually run rather than skipped into a pass.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "junit.xml")
+            runner = os.path.join(tmp, "runner.py")
+            with open(runner, "w", encoding="utf-8") as fh:
+                fh.write(f"open({path!r}, 'w').write({fixture('junit-empty.xml')!r})")
+            out = self._zerocase("--junit", path, "--", sys.executable, runner, "--help")
+            self.assertEqual(out.returncode, EXIT_DID_NOT_RUN)
+            self.assertTrue(os.path.exists(path), "the command under test never ran")
+            self.assertNotIn("a check with a zero denominator", out.stderr)
+
+    def test_dash_h_in_the_command_under_test_is_a_hostname_not_our_flag(self):
+        """`--help` needs a command that takes it. `-h` needs nothing unusual at all.
+
+        It is a hostname to `mysqldump`, `curl` and `ab`, so this shape was a gate
+        reporting clean forever on a report it never opened.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "junit.xml")
+            runner = os.path.join(tmp, "runner.py")
+            with open(runner, "w", encoding="utf-8") as fh:
+                fh.write(f"open({path!r}, 'w').write({fixture('junit-empty.xml')!r})")
+            out = self._zerocase("--junit", path, "--",
+                                 sys.executable, runner, "-h", "dbhost")
+            self.assertEqual(out.returncode, EXIT_DID_NOT_RUN)
+            self.assertTrue(os.path.exists(path), "the command under test never ran")
+
+    def test_zerocases_own_help_still_prints_usage_and_exits_0(self):
+        """The flag has to keep working where it IS ours, or the fix is a regression."""
+        for flag in ("-h", "--help"):
+            with self.subTest(flag=flag):
+                out = self._zerocase(flag)
+                self.assertEqual(out.returncode, 0)
+                self.assertIn("a check with a zero denominator", out.stderr)
+        bare = self._zerocase()
+        self.assertEqual(bare.returncode, 2,
+                         "no arguments at all is could-not-run, not help")
+
     def test_read_refuses_a_floor_rather_than_silently_ignoring_it(self):
         """THE REGRESSION THIS EXISTS FOR.
 

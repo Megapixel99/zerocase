@@ -126,12 +126,20 @@ function readMode(argv) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  if (argv.length === 0 || argv.includes("-h") || argv.includes("--help")) {
+  const split = argv.indexOf("--");
+  // ONLY THE ARGUMENTS BEFORE `--` ARE OURS. Scanning the whole of argv let a `-h` or a
+  // `--help` belonging to the COMMAND UNDER TEST print zerocase's usage and return 0
+  // without ever spawning it — a gate that cannot fail, which is the one thing this
+  // package is for. `--help` needs a command that takes it; `-h` needs nothing unusual
+  // at all, because `-h` is a hostname to `mysqldump`, `curl` and `ab`, so
+  // `zerocase --json r.json:n --min 4 -- mysqldump -h db` reported clean forever.
+  // `didrun` had the same scan and fixed it in 0.1.3; this is that fix, in its sibling.
+  const ours = split < 0 ? argv : argv.slice(0, split);
+  if (argv.length === 0 || ours.includes("-h") || ours.includes("--help")) {
     process.stderr.write(USAGE);
     return argv.length === 0 ? 2 : 0;
   }
   if (argv[0] === "read") return readMode(argv.slice(1));
-  const split = argv.indexOf("--");
   if (split < 0) {
     process.stderr.write("zerocase: put the command after `--`\n");
     return 2;
