@@ -154,6 +154,33 @@ jobs:
             exit 1
           fi
 
+      # A LOCK ENTRY IS A LABEL AND A TARBALL, AND NOTHING MADE THEM AGREE. `didrun` sat
+      # in this lockfile as version 0.1.3 resolved to `didrun-0.1.0.tgz`, so `npm ci`
+      # installed 0.1.0 and every JavaScript job tested against it while the file said
+      # otherwise. `npm install` does not correct that: a lockfile satisfying the range is
+      # one npm leaves alone. Fixed in 0.1.5 as an instance; this is the class.
+      - name: every lockfile entry resolves the version it names
+        run: |
+          set -euo pipefail
+          node -e '
+            const lock = require("./package-lock.json");
+            let bad = 0;
+            for (const [where, entry] of Object.entries(lock.packages || {})) {
+              if (!entry.resolved || !entry.version) continue;
+              const file = entry.resolved.split("/").pop().split("?")[0];
+              if (!file.endsWith(".tgz")) continue;   // git and file deps name no version
+              const ok = file.endsWith("-" + entry.version + ".tgz");
+              console.log((ok ? "ok  " : "BAD ") + (where || ".") +
+                          "  version=" + entry.version + "  resolved=" + file);
+              if (!ok) bad += 1;
+            }
+            if (bad) {
+              console.log("::error::" + bad + " lockfile entr" + (bad === 1 ? "y names" :
+                          "ies name") + " a version the resolved tarball is not");
+              process.exitCode = 1;
+            }
+          '
+
   parity:
     # THE TWO HALVES AGREE ABOUT THE NUMBERS AND THE SENTENCES, OR A CI FILE MEANS TWO
     # THINGS.
