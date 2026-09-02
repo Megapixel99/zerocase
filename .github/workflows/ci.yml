@@ -65,7 +65,16 @@ jobs:
         # edge `tools/depgraph.py` cannot see.
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet didrun
+          # ONE didrun FOR BOTH HALVES, AND THE LOCKFILE IS WHAT NAMES IT. `npm ci`
+          # installs the pinned version while `pip install didrun` took whatever PyPI
+          # was serving that minute, so these suites could stand on two different
+          # releases of the tool they both wrap and still call the result parity.
+          # Observed during 0.1.5: npm on 0.1.3 while PyPI still answered 0.1.2. The
+          # lockfile already names a version and `versions` already refuses to let it
+          # lie, so it names the version for Python too, and `dependabot.yml` is what
+          # moves it.
+          pin=$(python3 -c "import json; print(json.load(open('package-lock.json'))['packages']['node_modules/@megapixel99/didrun']['version'])")
+          python3 -m pip install --quiet "didrun==$pin"
           python3 - <<'PY'
           # NOT tomllib, which is 3.11+. This step runs on every version in the
           # matrix INCLUDING the 3.9 floor the manifest promises, so the check that
@@ -145,7 +154,9 @@ jobs:
           # cache invalidation is keyed on mtime at one-second granularity.
           # `didrun` is imported by `zerocase/__init__`, so it has to be present for
           # `__version__` to be readable at all.
-          python3 -m pip install --quiet didrun
+          # The lockfile names the version for both halves; see the `python` job.
+          pin=$(python3 -c "import json; print(json.load(open('package-lock.json'))['packages']['node_modules/@megapixel99/didrun']['version'])")
+          python3 -m pip install --quiet "didrun==$pin"
           dunder=$(PYTHONDONTWRITEBYTECODE=1 python3 -c "import zerocase; print(zerocase.__version__)")
           esm=$(node -p "require('fs').readFileSync('js/src/index.js','utf8').match(/VERSION = \"([^\"]+)\"/)[1]")
           echo "pyproject=$py  package.json=$js  __version__=$dunder  VERSION=$esm"
@@ -200,12 +211,25 @@ jobs:
         # which is this package's own rule applied to its own gate.
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet didrun
+          # The lockfile names the version for both halves; see the `python` job.
+          pin=$(python3 -c "import json; print(json.load(open('package-lock.json'))['packages']['node_modules/@megapixel99/didrun']['version'])")
+          python3 -m pip install --quiet "didrun==$pin"
           # The parity suite IS the thing that shells out to node, so the JavaScript
           # dependency has to be here too. Its absence made every parity test error, the
           # `ran` count fall to zero, and this job report "SKIPPED" for a reason that was
           # neither a skip nor a contract failure.
           npm install --no-audit --no-fund
+          # AND THEY ARE STANDING ON THE SAME didrun. The step above pins Python to the
+          # lockfile, which is a claim; this is the check. A parity suite comparing two
+          # halves that wrap two different versions of the same tool is measuring the
+          # gap between those versions and reporting it as agreement.
+          js=$(node -p "require('./node_modules/@megapixel99/didrun/package.json').version")
+          py=$(python3 -c "import didrun; print(didrun.__version__)")
+          echo "didrun: npm=$js  pypi=$py"
+          if [ "$js" != "$py" ]; then
+            echo "::error::the halves are testing against different didrun versions"
+            exit 1
+          fi
           out=$(python3 -m unittest discover -s python/tests -p 'test_parity.py' -v 2>&1)
           echo "$out"
           # A HERE-STRING AND NOT A PIPE, and this one matters more than it looks.
@@ -238,7 +262,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - run: python3 -m pip install --quiet didrun unittest-xml-reporting
+      - name: the pinned didrun, and the reporter this job needs
+        # The lockfile names the version for both halves; see the `python` job.
+        run: |
+          set -euo pipefail
+          pin=$(python3 -c "import json; print(json.load(open('package-lock.json'))['packages']['node_modules/@megapixel99/didrun']['version'])")
+          python3 -m pip install --quiet "didrun==$pin" unittest-xml-reporting
       - run: npm install --no-audit --no-fund
 
       - name: it gates its own Python suite on its own JUnit report

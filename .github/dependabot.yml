@@ -1,0 +1,29 @@
+# THE LOCKFILE PINNED didrun 0.1.3 AND RESOLVED THE 0.1.0 TARBALL FOR TWO RELEASES, and
+# the reason nobody noticed is that nothing was watching. `versions` now catches an entry
+# that lies about itself; this is what moves the entry when there is somewhere newer to
+# move it to. The two are a pair: one refuses a stale pin, the other supplies the bump.
+#
+# npm ONLY, DELIBERATELY.
+#
+#   * `pip` would do nothing. `pyproject.toml` says `didrun>=0.1.0` and every release
+#     satisfies it, so dependabot has no version to raise. CI installs the version the
+#     LOCKFILE names for the Python half too, which is what actually keeps the two
+#     halves standing on one didrun, so an npm bump is a bump for both.
+#
+#   * `github-actions` would fight a decision. `ci.yml` pins the actions at v7 on
+#     purpose and says so where it does it.
+#
+# A dependabot PR runs the whole suite like any other, `resolved` gate included, so a
+# bump that breaks the parity contract fails in the same place a hand-written one would.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      # The log reads as sentences here. `chore(deps):` is neither, and the bump is
+      # worth a line a person can read six months later.
+      prefix: didrun
+    labels: []
