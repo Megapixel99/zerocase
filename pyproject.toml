@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zerocase"
-version = "0.1.6"
+version = "0.1.7"
 description = "A check with a zero denominator reports clean. Read the junit/TAP/lcov/eslint report the runner already wrote and put a floor under what actually ran."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -21,7 +21,12 @@ keywords = ["ci", "junit", "tap", "lcov", "cobertura", "eslint", "coverage",
 # junit/TAP" -- so the edge points at the package whose author declined to close it.
 # Dependencies point strictly downward; `tools/depgraph.py` in the reckoner tree
 # asserts it.
-dependencies = ["didrun>=0.1.0"]
+# THE FLOOR IS 0.1.6 AND IT IS A CORRECTNESS FLOOR, not tidiness. Every `--timeout`
+# here is `didrun`'s, and before 0.1.6 its deadline killed the command without
+# killing what the command started: `-- pytest tests/` under a shell left the runner
+# alive holding the pipe, so the timeout returned on time and bounded nothing. A
+# resolver free to pick 0.1.5 gives this package a deadline that does not.
+dependencies = ["didrun>=0.1.6"]
 
 [project.scripts]
 zerocase = "zerocase.cli:main"
