@@ -125,7 +125,7 @@ It takes **one kind and one path**, and refuses anything else with exit 2 rather
 dropping it. Both things people trailed onto it used to vanish in silence: `--min 4`,
 which `read` has no floor to apply it to and which belongs to the wrapper form that
 checks freshness, and an unquoted `reports/*.xml`, which the shell expands into arguments
-before the process starts — so only the first match was ever read. A floor that enforces
+before the process starts, so only the first match was ever read. A floor that enforces
 nothing and a glob that counted one file of five both look exactly like a pass.
 
 ## Count the elements, not the attributes
