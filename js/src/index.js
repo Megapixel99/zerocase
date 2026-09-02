@@ -19,4 +19,4 @@ import * as parse from "./parse.js";
 export { reports, parse };
 export { ParseError, KINDS, UNITS, VERBS } from "./parse.js";
 export { verdict, read } from "./reports.js";
-export const VERSION = "0.1.5";
+export const VERSION = "0.1.6";
