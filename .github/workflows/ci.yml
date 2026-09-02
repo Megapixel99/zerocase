@@ -59,7 +59,7 @@ jobs:
           node-version: '24'   # the parity tests shell out to it
 
       - name: one dependency, and it is didrun
-        # `dependencies = ["didrun>=0.1.0"]` is a claim about the manifest. This is the
+        # `dependencies = ["didrun>=0.1.6"]` is a claim about the manifest. This is the
         # check that the CODE has not acquired a second one -- the network's rule is
         # that edges point downward and stay few, and an import nobody declared is an
         # edge `tools/depgraph.py` cannot see.
@@ -86,7 +86,7 @@ jobs:
           text = open("pyproject.toml", encoding="utf-8").read()
           block = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.M | re.S)
           deps = re.findall(r'"([^"]+)"', block.group(1)) if block else []
-          assert deps == ["didrun>=0.1.0"], f"dependencies drifted: {deps}"
+          assert deps == ["didrun>=0.1.6"], f"dependencies drifted: {deps}"
           PY
           python3 -c "import zerocase, zerocase.parse, zerocase.reports, zerocase.cli; print('zerocase', zerocase.__version__)"
 
