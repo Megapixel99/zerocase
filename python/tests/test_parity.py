@@ -226,6 +226,35 @@ class TheRefusalsAgreeWordForWord(unittest.TestCase):
                                  f"the JavaScript half did not refuse: {theirs.stderr}")
                 self.assertEqual(mine.stderr, theirs.stderr)
 
+    def test_the_usage_text_is_the_same_in_both_halves(self):
+        """32 lines of flags maintained twice, and a CI file is written from whichever
+        one the author happened to read.
+
+        This is the string the `-h`/`--help` scan decides when to print, so it is worth
+        holding still while that decision changes underneath it.
+        """
+        mine, theirs = self._py(["--help"]), self._js(["--help"])
+        self.assertEqual(mine.returncode, 0)
+        self.assertEqual(theirs.returncode, 0)
+        self.assertEqual(mine.stderr, theirs.stderr)
+        self.assertIn("--min-KIND", mine.stderr,
+                      "the usage compared here is not the flag list")
+
+    def test_neither_half_treats_the_commands_help_as_its_own(self):
+        """A `-h` after `--` belongs to the command under test, in both halves.
+
+        Exit 2 here is `cannot run '/nonexistent/zerocase-probe'` -- the command was
+        reached and spawned, which is the whole assertion. A half still scanning all of
+        argv would print its usage and return 0 without ever getting that far.
+        """
+        args = ["--junit", os.path.join(FIXTURES, "junit-real.xml"),
+                "--", "/nonexistent/zerocase-probe", "-h", "db"]
+        mine, theirs = self._py(args), self._js(args)
+        self.assertEqual(mine.returncode, theirs.returncode)
+        self.assertNotEqual(mine.returncode, 0)
+        for out in (mine, theirs):
+            self.assertNotIn("a check with a zero denominator", out.stderr)
+
     def test_the_refusal_table_reaches_the_floor_that_read_cannot_apply(self):
         """A table that only ever exercised `--junit` with no path proves one branch.
 

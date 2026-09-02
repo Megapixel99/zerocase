@@ -121,15 +121,23 @@ def _read_mode(argv):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or "-h" in argv or "--help" in argv:
+    split = argv.index("--") if "--" in argv else -1
+    # ONLY THE ARGUMENTS BEFORE `--` ARE OURS. Scanning the whole of argv let a `-h` or a
+    # `--help` belonging to the COMMAND UNDER TEST print zerocase's usage and return 0
+    # without ever spawning it — a gate that cannot fail, which is the one thing this
+    # package is for. `--help` needs a command that takes it; `-h` needs nothing unusual
+    # at all, because `-h` is a hostname to `mysqldump`, `curl` and `ab`, so
+    # `zerocase --json r.json:n --min 4 -- mysqldump -h db` reported clean forever.
+    # `didrun` had the same scan and fixed it in 0.1.3; this is that fix, in its sibling.
+    ours = argv if split < 0 else argv[:split]
+    if not argv or "-h" in ours or "--help" in ours:
         sys.stderr.write(USAGE)
         return 0 if argv else 2
     if argv[0] == "read":
         return _read_mode(argv[1:])
-    if "--" not in argv:
+    if split < 0:
         sys.stderr.write("zerocase: put the command after `--`\n")
         return 2
-    split = argv.index("--")
     flags, command = argv[:split], argv[split + 1:]
     if not command:
         sys.stderr.write("zerocase: nothing to run after `--`\n")
