@@ -1,6 +1,6 @@
 {
   "name": "zerocase",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A check with a zero denominator reports clean. Read the junit/TAP/lcov/eslint report the runner already wrote and put a floor under what actually ran.",
   "type": "module",
   "exports": {
@@ -24,7 +24,7 @@
     "test": "node --test js/test/*.test.js"
   },
   "dependencies": {
-    "@megapixel99/didrun": ">=0.1.0"
+    "@megapixel99/didrun": ">=0.1.6"
   },
   "keywords": [
     "ci",

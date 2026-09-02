@@ -265,8 +265,8 @@ Nothing found gates a run on the denominator of the report the runner already wr
 ## Tests
 
 ```sh
-npm test                                                   # 38
-PYTHONPATH=python python3 -m unittest discover -s python/tests   # 44, seven of them parity
+npm test                                                   # 46
+PYTHONPATH=python python3 -m unittest discover -s python/tests   # 60, fifteen of them parity
 ```
 
 The parity suite sends **one** table of fixtures and verdict rows to both halves and
