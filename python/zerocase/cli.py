@@ -60,6 +60,26 @@ FLAG_FOR = {f"--{kind}": kind for kind in KINDS if kind != "json"}
 # `--lcov` and absurd for `--junit` in the same invocation, and the first version made you
 # choose. `--min` remains the default for every kind that has no `--min-KIND`.
 MIN_FLAG_FOR = {f"--min-{kind}": kind for kind in KINDS}
+# THE FLAGS THAT SWALLOW THE NEXT ARGUMENT. `-h` is only ours in FLAG POSITION: as the
+# value of `--expect` it is a regex, as the value of `--junit` it is a path, and reading
+# either as a request for help prints usage and returns 0 without running the command --
+# the same gate-that-cannot-fail the `--` split closed, one argument further in.
+VALUED = set(FLAG_FOR) | set(MIN_FLAG_FOR) | {
+    "--json", "--expect", "--expect-stdout", "--expect-stderr", "--expect-count",
+    "--wrote", "--took-at-least", "--min", "--expect-failure", "--timeout",
+}
+
+
+def _wants_usage(ours):
+    """Is `-h`/`--help` here as OUR flag, rather than as some other flag's value?"""
+    i = 0
+    while i < len(ours):
+        if ours[i] in ("-h", "--help"):
+            return True
+        if ours[i] in VALUED:
+            i += 1          # the next argument is a value, not a flag
+        i += 1
+    return False
 
 
 def _read_mode(argv):
@@ -130,7 +150,7 @@ def main(argv=None):
     # `zerocase --json r.json:n --min 4 -- mysqldump -h db` reported clean forever.
     # `didrun` had the same scan and fixed it in 0.1.3; this is that fix, in its sibling.
     ours = argv if split < 0 else argv[:split]
-    if not argv or "-h" in ours or "--help" in ours:
+    if not argv or _wants_usage(ours):
         sys.stderr.write(USAGE)
         return 0 if argv else 2
     if argv[0] == "read":
@@ -148,6 +168,21 @@ def main(argv=None):
     minimum, quiet, as_json, allow_stale = 1, False, False, False
     per_kind = {}
 
+    # A MISSING VALUE IS COULD-NOT-RUN (2), NOT THE COMMAND'S OWN STATUS, and it is
+    # settled HERE so that no predicate is built from half an argument list. `value()`
+    # raised `SystemExit` and exited 1, the code reserved for the wrapped command failing
+    # normally, so a CI file branching on didrun's table read a zerocase usage error as a
+    # test failure. The walk is `_wants_usage`'s, over the same table -- a flag that
+    # swallows the next argument needs one to swallow.
+    i = 0
+    while i < len(flags):
+        if flags[i] in VALUED:
+            if i + 1 >= len(flags):
+                sys.stderr.write(f"zerocase: {flags[i]} needs a value\n")
+                return 2
+            i += 1
+        i += 1
+
     i = 0
     while i < len(flags):
         flag = flags[i]
@@ -155,6 +190,7 @@ def main(argv=None):
         def value():
             nonlocal i
             i += 1
+            # Unreachable: the walk above proved every valued flag has one.
             if i >= len(flags):
                 raise SystemExit(f"zerocase: {flag} needs a value")
             return flags[i]

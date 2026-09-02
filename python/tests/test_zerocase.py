@@ -442,6 +442,38 @@ class TheCommandLine(unittest.TestCase):
             self.assertEqual(out.returncode, EXIT_DID_NOT_RUN)
             self.assertTrue(os.path.exists(path), "the command under test never ran")
 
+    def test_a_dash_h_belonging_to_another_flag_is_that_flags_value(self):
+        """The `--` split settled which arguments are the command's, not which of ours
+        are flags.
+
+        `--expect -h` is a regex and `--junit -h` is a path, and reading either as a
+        request for help was the same exit-0-without-running, one argument further in.
+        """
+        for flag, val in (("--expect", "-h"), ("--expect-failure", "--help")):
+            with self.subTest(flag=flag):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = os.path.join(tmp, "junit.xml")
+                    runner = os.path.join(tmp, "runner.py")
+                    with open(runner, "w", encoding="utf-8") as fh:
+                        fh.write(f"open({path!r}, 'w').write("
+                                 f"{fixture('junit-empty.xml')!r})")
+                    out = self._zerocase("--junit", path, flag, val, "--",
+                                         sys.executable, runner)
+                    self.assertEqual(out.returncode, EXIT_DID_NOT_RUN)
+                    self.assertTrue(os.path.exists(path), "the command never ran")
+                    self.assertNotIn("a check with a zero denominator", out.stderr)
+
+    def test_a_valued_flag_with_no_value_is_could_not_run(self):
+        """`value()` raised `SystemExit` and exited 1, the code reserved for THE WRAPPED
+        COMMAND failing normally, so a CI file branching on didrun's table read a zerocase
+        usage error as a test failure.
+        """
+        # The `--` has to be there, or "put the command after `--`" answers first.
+        out = self._zerocase("--junit", os.path.join(FIXTURES, "junit-real.xml"),
+                             "--expect", "--", "echo", "hi")
+        self.assertEqual(out.returncode, 2)
+        self.assertEqual(out.stderr, "zerocase: --expect needs a value\n")
+
     def test_zerocases_own_help_still_prints_usage_and_exits_0(self):
         """The flag has to keep working where it IS ours, or the fix is a regression."""
         for flag in ("-h", "--help"):

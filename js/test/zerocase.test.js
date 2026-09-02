@@ -464,6 +464,41 @@ test("`-h` in the command under test is a hostname, not our flag", async () => {
   assert.ok(fs.existsSync(file), "the command under test never ran");
 });
 
+test("a `-h` that belongs to another flag is that flag's value, not our flag", async () => {
+  // The `--` split settled which arguments are the command's. It did not settle which of
+  // OURS are flags: `--expect -h` is a regex and `--junit -h` is a path, and reading
+  // either as a request for help was the same exit-0-without-running, one argument in.
+  const dir = tmpdir();
+  const file = path.join(dir, "junit.xml");
+  const runner = path.join(dir, "runner.js");
+  fs.writeFileSync(
+    runner,
+    `require("fs").writeFileSync(${JSON.stringify(file)}, ${JSON.stringify(fixture("junit-empty.xml"))})`
+  );
+  for (const flagAndValue of [["--expect", "-h"], ["--expect-failure", "--help"]]) {
+    const out = await zerocase(
+      "--junit", file, ...flagAndValue, "--", process.execPath, runner
+    );
+    assert.equal(out.code, EXIT_DID_NOT_RUN, flagAndValue.join(" "));
+    assert.ok(fs.existsSync(file), `the command never ran: ${flagAndValue.join(" ")}`);
+    assert.doesNotMatch(out.stderr, /a check with a zero denominator/);
+    fs.rmSync(file);
+  }
+});
+
+test("a valued flag with no value is could-not-run, not a stack trace", async () => {
+  // `value()` threw out of `main`; node printed an unhandled rejection and exited 1, the
+  // code reserved for THE WRAPPED COMMAND failing normally. A CI file branching on
+  // didrun's table read a zerocase usage error as a test failure.
+  // The `--` has to be there, or the earlier "put the command after `--`" answers first.
+  const out = await zerocase(
+    "--junit", path.join(FIXTURES, "junit-real.xml"), "--expect", "--", "echo", "hi"
+  );
+  assert.equal(out.code, 2);
+  assert.equal(out.stderr, "zerocase: --expect needs a value\n");
+  assert.doesNotMatch(out.stderr, /at async|ERR_UNHANDLED/);
+});
+
 test("zerocase's own --help still prints usage and exits 0", async () => {
   // The flag has to keep working where it IS ours, or the fix above is a regression
   // wearing a test.
